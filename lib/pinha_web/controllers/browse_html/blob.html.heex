@@ -1,0 +1,35 @@
+<Layouts.app
+  count={format_bytes(@blob.size) <> if(@lines != [], do: " · " <> count_label(length(@lines), "line", "lines"), else: "")}
+  up={tree_path(@repo.name, @target.name, parent_path(@path) || "")}
+>
+  <:trail>
+    <.crumbs repo={@repo} target={@target} path={@path} />
+  </:trail>
+
+  <div class="panes">
+    <section class="pane bare">
+      <p :if={@blob.binary?} class="empty">
+        Binary file, {format_bytes(@blob.size)}. Fetch the bytes from the raw route.
+      </p>
+
+      <p :if={@blob.too_large? and not @blob.binary?} class="empty">
+        File is {format_bytes(@blob.size)}, over the 5.0 MiB render limit. Fetch the bytes from the
+        raw route.
+      </p>
+
+      <table :if={@lines != []} class="blob">
+        <tbody>
+          <tr :for={{line, index} <- Enum.with_index(@lines, 1)}>
+            <td class="ln">{index}</td>
+            <td class="line"><pre>{line}</pre></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <:controls>
+    <.target_info target={@target} />
+    <a class="button spacer" href={raw_path(@repo.name, @target.name, @path)}>Raw</a>
+  </:controls>
+</Layouts.app>

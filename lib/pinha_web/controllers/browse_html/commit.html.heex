@@ -1,0 +1,70 @@
+<Layouts.app title={"commit " <> short(@commit.id)} up={repo_path(@repo.name)}>
+  <div class="panes split">
+    <section class="pane">
+      <header class="pane-head">
+        <span>Commit</span>
+        <span class="count">{count_label(stat_totals(@stat).files, "file", "files")}</span>
+      </header>
+
+      <div class="note">
+        <p class="subject">{@commit.subject}</p>
+        <pre :if={@commit.body != ""} class="message">{@commit.body}</pre>
+      </div>
+
+      <dl class="kv">
+        <dt>Commit</dt>
+        <dd>{@commit.id}</dd>
+
+        <dt :if={@commit.change_id}>Change</dt>
+        <dd :if={@commit.change_id} class="change-id">{@commit.change_id}</dd>
+
+        <dt>Author</dt>
+        <dd class="prose">
+          {@commit.author_name} &lt;{@commit.author_email}&gt; · {format_date(@commit.author_date)}
+        </dd>
+
+        <dt>Committer</dt>
+        <dd class="prose">
+          {@commit.committer_name} &lt;{@commit.committer_email}&gt; · {format_date(
+            @commit.committer_date
+          )}
+        </dd>
+
+        <dt>Parents</dt>
+        <dd>
+          <span :if={@commit.parents == []} class="muted">none, root commit</span>
+          <a :for={parent <- @commit.parents} class="id" href={commit_path(@repo.name, parent)}>
+            {short(parent)}
+          </a>
+        </dd>
+
+        <dt>Tree</dt>
+        <dd><a href={tree_path(@repo.name, @commit.id)}>browse files</a></dd>
+      </dl>
+
+      <p :if={@stat == []} class="empty">
+        No file changes. This commit is a merge or an empty commit.
+      </p>
+
+      <ul :if={@stat != []} class="stat">
+        <li :for={file <- @stat} data-row>
+          <span class="added">+{file.added}</span>
+          <span class="removed">−{file.removed}</span>
+          <a class="path" href={tree_path(@repo.name, @commit.id, file.path)}>{file.path}</a>
+        </li>
+      </ul>
+    </section>
+
+    <section class="pane">
+      <header class="pane-head">
+        <span>Diff</span>
+        <span class="count">+{stat_totals(@stat).added} −{stat_totals(@stat).removed}</span>
+      </header>
+
+      <pre class="diff"><span
+        :for={{class, line} <- diff_lines(@diff)}
+        class={["line", class]}
+      >{line <> "\n"}</span></pre>
+    </section>
+  </div>
+</Layouts.app>

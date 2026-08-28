@@ -1,0 +1,56 @@
+<Layouts.app status="/ name">
+  <div class="panes">
+    <section class="pane">
+      <header class="pane-head">
+        <span>Repositories</span>
+        <span class="count">{length(@repos)}</span>
+      </header>
+
+      <p :if={@repos == []} class="empty">No repositories. Name one in the bar below.</p>
+
+      <table :if={@repos != []} class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Branch</th>
+            <th>Head</th>
+            <th>Subject</th>
+            <th>Updated</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={entry <- @repos} data-row>
+            <td><a class="path" href={repo_path(entry.repo.name)}>{entry.repo.name}</a></td>
+            <td class="ref">{entry.default_branch}</td>
+            <td>
+              <a :if={entry.head} class="id" href={commit_path(entry.repo.name, entry.head.id)}>
+                {short(entry.head.id)}
+              </a>
+            </td>
+            <td class="prose">
+              {(entry.head && entry.head.subject) || ""}
+              <span :if={is_nil(entry.head)} class="muted">no commits</span>
+            </td>
+            <td class="right">{entry.head && format_date(entry.head.author_date)}</td>
+            <td class="prose wide">{entry.repo.description}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <:controls>
+    <form method="post" action="/repos">
+      <input
+        type="text"
+        name="name"
+        placeholder="new-repo"
+        pattern="[A-Za-z0-9][A-Za-z0-9._\-]*"
+        data-focus
+        required
+      />
+      <button type="submit" class="primary">Create</button>
+    </form>
+  </:controls>
+</Layouts.app>

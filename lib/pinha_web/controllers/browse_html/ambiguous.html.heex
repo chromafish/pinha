@@ -1,0 +1,33 @@
+<Layouts.app title={"change " <> @rev} up={repo_path(@repo.name)}>
+  <div class="panes">
+    <section class="pane">
+      <header class="pane-head">
+        <span>Ambiguous change id</span>
+        <span class="count">{length(@matches)}</span>
+      </header>
+
+      <p class="empty">
+        <code>{@rev}</code>
+        matches {length(@matches)} commits. Divergent commits that share a change id are listed
+        individually; open the one you want.
+      </p>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Commit</th>
+            <th>Change</th>
+            <th>Subject</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={match <- @matches} data-row>
+            <td><a class="id" href={commit_path(@repo.name, match.id)}>{short(match.id)}</a></td>
+            <td class="change-id">{match.change_id}</td>
+            <td class="prose wide">{match.subject}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</Layouts.app>

@@ -1,0 +1,38 @@
+/* Type scale. Two jobs, two typefaces.
+   Supreme sets anything read as language — headings, sentences, review notes.
+   Commit Mono sets anything scanned as data — numbers, paths, diffs, keys, labels.
+   Prose is never set in mono. Sizes are fixed px, never fluid. */
+:root{
+  --fs-micro:10px; --fs-label:11px; --fs-meta:12px; --fs-body:14px; --fs-body-lg:16px;
+  --fs-data:13px;
+  --fs-h4:16px; --fs-h3:20px; --fs-h2:26px; --fs-h1:34px; --fs-display:52px; --fs-display-lg:76px;
+
+  --lh-tight:1.08; /* @kind font */
+  --lh-snug:1.28; /* @kind font */
+  --lh-normal:1.5; /* @kind font */
+  --lh-loose:1.65; /* @kind font */
+
+  --ls-display:-0.03em; --ls-heading:-0.02em; --ls-normal:0em; --ls-label:0.06em; --ls-caps:0.12em;
+
+  --fw-light:300; /* @kind font */
+  --fw-regular:400; /* @kind font */
+  --fw-medium:500; /* @kind font */
+  --fw-semibold:500; /* @kind font */
+  --fw-bold:700; /* @kind font */
+
+  /* language — Supreme */
+  --type-display:var(--fw-bold) var(--fs-display)/var(--lh-tight) var(--font-text);
+  --type-h1:var(--fw-bold) var(--fs-h1)/var(--lh-tight) var(--font-text);
+  --type-h2:var(--fw-medium) var(--fs-h2)/var(--lh-snug) var(--font-text);
+  --type-h3:var(--fw-medium) var(--fs-h3)/var(--lh-snug) var(--font-text);
+  --type-h4:var(--fw-medium) var(--fs-h4)/var(--lh-snug) var(--font-text);
+  --type-body:var(--fw-regular) var(--fs-body)/var(--lh-normal) var(--font-text);
+  --type-body-lg:var(--fw-regular) var(--fs-body-lg)/var(--lh-normal) var(--font-text);
+  --type-editorial:var(--fw-regular) var(--fs-body-lg)/var(--lh-loose) var(--font-text);
+
+  /* data — Commit Mono */
+  --type-data:var(--fw-regular) var(--fs-data)/var(--lh-normal) var(--font-mono);
+  --type-meta:var(--fw-regular) var(--fs-meta)/var(--lh-snug) var(--font-mono);
+  --type-label:var(--fw-medium) var(--fs-label)/var(--lh-snug) var(--font-mono);
+  --type-code:var(--fw-regular) var(--fs-data)/1.55 var(--font-mono);
+}

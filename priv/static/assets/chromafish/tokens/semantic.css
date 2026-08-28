@@ -1,0 +1,49 @@
+/* Semantic aliases — components reference ONLY these. */
+:root{
+  /* surfaces */
+  --surface-page:var(--paper-page);
+  --surface-panel:var(--paper-raised);
+  --surface-sunken:var(--paper-2);
+  --surface-raised:var(--paper-raised);
+  --surface-row-alt:var(--paper-1);
+  --surface-hover:var(--paper-2);
+  --surface-float:var(--paper-raised);
+  --surface-active:var(--paper-3);
+  --surface-selected:var(--moss-6);
+  --surface-inverse:var(--ink-0);
+
+  /* text */
+  --text-strong:var(--ink-0);
+  --text-body:var(--ink-1);
+  --text-muted:var(--ink-3);
+  --text-faint:var(--ink-4);
+  --text-inverse:var(--paper-raised);
+  --text-link:var(--moss-2);
+  --text-link-hover:var(--moss-1);
+  --text-accent:var(--olive-2);
+
+  /* borders */
+  --border-subtle:var(--paper-3);
+  --border-default:var(--paper-4);
+  --border-strongc:var(--ink-2);
+  --border-accent:var(--moss-3);
+
+  /* primary action */
+  --action-bg:var(--moss-2);
+  --action-bg-hover:var(--moss-1);
+  --action-bg-active:var(--moss-0);
+  --action-fg:var(--paper-raised);
+
+  /* status: added / changed / removed / info — the diff vocabulary */
+  --status-ok-fg:var(--moss-2); --status-ok-bg:var(--moss-6); --status-ok-line:var(--moss-3);
+  --status-warn-fg:var(--amber-2); --status-warn-bg:var(--amber-6); --status-warn-line:var(--amber-3);
+  --status-danger-fg:var(--rust-2); --status-danger-bg:var(--rust-6); --status-danger-line:var(--rust-3);
+  --status-info-fg:var(--teal-2); --status-info-bg:var(--teal-6); --status-info-line:var(--teal-3);
+  --status-neutral-fg:var(--ink-3); --status-neutral-bg:var(--paper-2); --status-neutral-line:var(--paper-4);
+
+  /* diff */
+  --diff-add-bg:var(--moss-6); --diff-add-gutter:var(--moss-3);
+  --diff-del-bg:var(--rust-6); --diff-del-gutter:var(--rust-3);
+  --diff-ctx-bg:transparent;
+  --focus-ring:var(--moss-3);
+}

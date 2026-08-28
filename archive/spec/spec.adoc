@@ -1,0 +1,44 @@
+= Spec Definition File
+:revdate: 2026-09-10
+
+== Context
+
+We need a way to define software implementations focused on providing clear intent and context for outside readers. Asking for a specification can lead to either specs that are oversimplified, and leave too many questions unanswered, or too detailed, making hard to read and understand the actual goal.
+
+This definition is inspired by design docs at Google. (At least, what I've heard about them).
+
+== When to write a Spec
+
+Write a spec when you will implement a new piece of software, of a significant feature that will take time and resources, and/or that requires stakeholder alignment.
+
+== Structure
+
+The structure must be:
+
+```
+Context? -> Scope -> Abstractions -> Mechanics -> Data Model?
+```
+
+=== What is Context?
+
+Context is a optional part that provides a brief explanation of why we need to tackle this. Must be short and to the point.
+
+=== What is Scope
+
+Scope is a small list that defines the scope of the feature implemented. The ideal size is 2. The point is not to be exhaustive, but to provide a strong signal of intent.
+
+Note that we do NOT list what is out of scope. That is explicitly forbidden.
+
+=== What is Abstractions
+
+Abstractions are, more or less, the domain types involved by a feature. They may define new abstractions or refer to abstractions defined in previous specs. In the latter case, avoid re-describind and just refer to the original spec.
+
+=== Mechanics
+
+Mechanics explain what Abstractions must do to support the feature. This is the part with the most implementation details. Again, they should not be exhaustive. The goal is to provide context for implementors, reviewers and stakeholders what the software needs to do to support the feature.
+
+Key elements that should be mentioned are external integrations, persistence, business rules.
+
+=== Data Model
+
+Describes persistence models, IF the feature requires.

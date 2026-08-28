@@ -1,0 +1,18 @@
+/* Minimal element defaults. Consumers get these for free by linking styles.css. */
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--surface-page);color:var(--text-body);font:var(--type-body);letter-spacing:var(--ls-normal);text-wrap:pretty;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;color:var(--text-strong)}
+h1{font:var(--type-h1);letter-spacing:var(--ls-heading)}
+h2{font:var(--type-h2);letter-spacing:var(--ls-heading)}
+h3{font:var(--type-h3)}
+h4{font:var(--type-h4)}
+p{margin:0 0 var(--sp-5)}
+a{color:var(--text-link);text-decoration:none;border-bottom:1px solid color-mix(in oklab,var(--text-link) 40%,transparent);transition:var(--transition-control)}
+a:hover{color:var(--text-link-hover);border-bottom-color:var(--text-link-hover)}
+code,pre,kbd{font-family:var(--font-mono)}
+hr{border:0;border-top:var(--rule);margin:var(--sp-8) 0}
+::selection{background:var(--moss-5);color:var(--ink-0)}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
+.cf-label{font:var(--type-label);letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--text-muted)}
+.cf-rule{border-top:var(--rule)}

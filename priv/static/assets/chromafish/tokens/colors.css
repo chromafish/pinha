@@ -1,0 +1,63 @@
+/* Base palette — earthy green on toned stock.
+   Light is printed on coloured stock, not white paper: the page itself is a
+   green-grey tone and panels sit lighter than it. Bone is the white variation.
+   Dark is an instrument ground. All three are first-class; none is a filter
+   applied over another. */
+:root{
+  /* the two surfaces that are not part of the ramp */
+  --paper-page:#E7EBDF;    /* the sheet itself — toned stock */
+  --paper-raised:#F1F4EA;  /* panels, inputs, anything sitting on the sheet */
+  /* paper ramp, lightest to darkest */
+  --paper-0:#F1F4EA; --paper-1:#E7EBDF; --paper-2:#D9DECC; --paper-3:#C3CAB3; --paper-4:#99A489;
+  /* ink (dark neutrals) */
+  --ink-0:#101410; --ink-1:#1C211B; --ink-2:#343B32; --ink-3:#576053; --ink-4:#828B7C;
+  /* greens */
+  --moss-0:#16301F; --moss-1:#254A2F; --moss-2:#2F5D3A; --moss-3:#3C7549; --moss-4:#5E9A68; --moss-5:#9BC4A1; --moss-6:#CFE3C9;
+  /* olive / lichen accent */
+  --olive-1:#4E5722; --olive-2:#6B7730; --olive-3:#7C8A3C; --olive-4:#A5B25C; --olive-5:#CDD69E; --olive-6:#E2E9BA;
+  /* earth accents */
+  --amber-2:#7A4E0C; --amber-3:#B5761F; --amber-4:#D79A3C; --amber-6:#F0D8A0;
+  --rust-2:#78270F; --rust-3:#A33B1F; --rust-4:#C9613F; --rust-6:#F1CCBC;
+  --teal-2:#123F3C; --teal-3:#24625E; --teal-4:#4E938D; --teal-6:#BFDDD9;
+  --clay-3:#8A5A3B;
+}
+
+/* Bone — the white variation. Same system on bleached stock. Opt in with
+   data-paper="bone" alongside a light theme. Use it where the surface should
+   disappear: print, exports, long documents. Neutrals only; every accent,
+   status and diff colour is inherited unchanged.
+   Near-zero chroma on purpose: bone is white that has been washed, not paper
+   that has yellowed. Any warmth here reads as beige. */
+[data-paper="bone"]{
+  --paper-page:#F4F5F2;
+  --paper-raised:#FBFCFA;
+  --paper-0:#FBFCFA; --paper-1:#F4F5F2; --paper-2:#E8EAE6; --paper-3:#D3D6D0; --paper-4:#A6ABA3;
+}
+
+[data-theme="dark"]{
+  --paper-page:#0C0F0B;
+  --paper-raised:#151912;
+  --paper-0:#151912; --paper-1:#1B2017; --paper-2:#242A1E; --paper-3:#333B29; --paper-4:#4A533C;
+  --ink-0:#E6E9DC; --ink-1:#D3D8C6; --ink-2:#AAB29A; --ink-3:#8C947C; --ink-4:#656D57;
+  --moss-0:#DCE8DB; --moss-1:#9BC4A1; --moss-2:#6FAE79; --moss-3:#589F63; --moss-4:#3F7A4B; --moss-5:#28502F; --moss-6:#16301F;
+  --olive-1:#EDEFD8; --olive-2:#C3CE86; --olive-3:#A8B85C; --olive-4:#7C8A3C; --olive-5:#454E1F; --olive-6:#252A11;
+  --amber-2:#F0D6A4; --amber-3:#D79A3C; --amber-4:#B5761F; --amber-6:#3A2A0D;
+  --rust-2:#F0CBBE; --rust-3:#D46A4C; --rust-4:#A33B1F; --rust-6:#3A1A10;
+  --teal-2:#CDE3E1; --teal-3:#59A8A0; --teal-4:#24625E; --teal-6:#0F2C2A;
+  --clay-3:#B98763;
+}
+
+@media (prefers-color-scheme:dark){
+  [data-theme="auto"]{
+    --paper-page:#0C0F0B;
+    --paper-raised:#151912;
+    --paper-0:#151912; --paper-1:#1B2017; --paper-2:#242A1E; --paper-3:#333B29; --paper-4:#4A533C;
+    --ink-0:#E6E9DC; --ink-1:#D3D8C6; --ink-2:#AAB29A; --ink-3:#8C947C; --ink-4:#656D57;
+    --moss-0:#DCE8DB; --moss-1:#9BC4A1; --moss-2:#6FAE79; --moss-3:#589F63; --moss-4:#3F7A4B; --moss-5:#28502F; --moss-6:#16301F;
+    --olive-1:#EDEFD8; --olive-2:#C3CE86; --olive-3:#A8B85C; --olive-4:#7C8A3C; --olive-5:#454E1F; --olive-6:#252A11;
+    --amber-2:#F0D6A4; --amber-3:#D79A3C; --amber-4:#B5761F; --amber-6:#3A2A0D;
+    --rust-2:#F0CBBE; --rust-3:#D46A4C; --rust-4:#A33B1F; --rust-6:#3A1A10;
+    --teal-2:#CDE3E1; --teal-3:#59A8A0; --teal-4:#24625E; --teal-6:#0F2C2A;
+    --clay-3:#B98763;
+  }
+}

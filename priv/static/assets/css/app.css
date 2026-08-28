@@ -1,0 +1,384 @@
+/* pinha — application layer over the chromafish design system.
+   Every colour, size, space and duration resolves to a chromafish token.
+
+   Layout follows the system's "consoles" reference, not "pages": a git host
+   is operated, not read. Fixed frame, header line at the top edge, one
+   scrolling region, a control bar and a single-line status bar pinned to the
+   bottom, panes split by a hairline along one axis, no measure cap.
+
+   Rows are dense but never touching: 32px rows, 16px gutters at every pane
+   edge, and 24px between stacked blocks inside a pane. */
+
+:root {
+  --row-h: 32px;             /* table and list row */
+  --head-h: 32px;            /* pane header line */
+  --edge: var(--sp-6);       /* horizontal breathing room at a pane edge */
+  --col-gap: var(--sp-7);    /* between table columns */
+  --block-gap: var(--sp-8);  /* between stacked blocks in one pane */
+}
+
+html, body { height: 100%; }
+
+body {
+  overflow: hidden;
+  background: var(--surface-page);
+}
+
+/* ---- the frame ---------------------------------------------------------- */
+
+.frame {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr) auto auto;
+}
+
+.frame-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  padding: 0 var(--edge);
+  background: var(--surface-sunken);
+  border-bottom: var(--bw-thick) solid var(--ink-0);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.frame-head .wordmark {
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-strong);
+  border-bottom: 0;
+}
+
+.frame-head .where,
+.frame-head .trail {
+  min-width: 0;
+  font: var(--type-data);
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.frame-head .trail .sep { color: var(--text-faint); padding: 0 var(--sp-2); }
+
+.frame-head .reading {
+  margin-left: auto;
+  padding-left: var(--sp-6);
+  font: var(--type-meta);
+  color: var(--text-muted);
+}
+
+/* ---- the scrolling region ----------------------------------------------- */
+
+.region { overflow: auto; min-height: 0; }
+
+.panes { display: grid; height: 100%; min-height: 0; }
+.panes.split { grid-template-columns: minmax(420px, 38%) minmax(0, 1fr); }
+
+.pane { min-width: 0; overflow: auto; padding-bottom: var(--sp-9); }
+.pane.bare { padding-top: var(--sp-5); }  /* no header line to hold the top edge */
+.pane + .pane { border-left: 1px solid var(--border-subtle); }
+
+/* Stacked blocks inside a pane never touch. The extra `.region` outranks the
+   `margin: 0` UA resets the blocks set for themselves. */
+.region .pane > * + * { margin-top: var(--block-gap); }
+
+/* code reads as one continuous block, so it sits closer to its header */
+.region .pane > .diff { margin-top: var(--sp-4); }
+
+.pane-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  height: var(--head-h);
+  padding: 0 var(--edge);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-default);
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pane-head .count { margin-left: auto; color: var(--text-faint); }
+
+.empty {
+  padding: var(--sp-6) var(--edge);
+  max-width: var(--measure);
+  font: var(--type-body);
+  color: var(--text-muted);
+}
+
+.lede {
+  padding: var(--sp-5) var(--edge);
+  max-width: var(--measure);
+  font: var(--type-body);
+  color: var(--text-body);
+}
+
+.muted { color: var(--text-muted); }
+
+/* ---- data type ---------------------------------------------------------- */
+
+.mono, code, .id, .path, .ref { font: var(--type-data); font-variant-numeric: tabular-nums; }
+.change-id { color: var(--text-accent); font: var(--type-data); }
+
+.tag {
+  margin-left: var(--sp-4);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-1);
+  font: var(--type-label);
+  letter-spacing: var(--ls-label);
+  color: var(--text-muted);
+}
+
+/* ---- tables: columns sized to content, 32px rows ------------------------ */
+
+.table { width: 100%; border-collapse: collapse; table-layout: auto; }
+
+.table th {
+  height: 26px;
+  padding: 0 var(--col-gap) 0 0;
+  text-align: left;
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.table td {
+  height: var(--row-h);
+  padding: 0 var(--col-gap) 0 0;
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: var(--bw-thick) solid transparent;
+  font: var(--type-data);
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+.table td:not(:first-child) { border-left: 0; }
+.table th:first-child, .table td:first-child { padding-left: var(--edge); }
+.table th:last-child, .table td:last-child { padding-right: var(--edge); }
+
+.table tbody tr { transition: background var(--dur-instant) var(--ease-mech); }
+.table tbody tr:hover { background: var(--surface-hover); }
+
+.table tbody tr[aria-selected="true"] { background: var(--surface-selected); }
+.table tbody tr[aria-selected="true"] td:first-child { border-left-color: var(--border-accent); }
+
+.table td.prose { font: var(--type-body); color: var(--text-body); }
+.table td.right { text-align: right; color: var(--text-muted); }
+.table td.wide { width: 100%; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+
+/* ---- key/value rows ----------------------------------------------------- */
+
+.kv { display: grid; grid-template-columns: 112px minmax(0, 1fr); margin: 0; }
+
+.kv dt {
+  padding: var(--sp-4) var(--sp-5) var(--sp-4) var(--edge);
+  border-bottom: 1px solid var(--border-subtle);
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.kv dd {
+  margin: 0;
+  padding: var(--sp-4) var(--edge) var(--sp-4) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font: var(--type-data);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.kv dd a + a { margin-left: var(--sp-5); }
+.kv dd.prose { font: var(--type-body); color: var(--text-body); }
+
+/* ---- control bar and status bar ----------------------------------------- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--edge);
+  background: var(--surface-panel);
+  border-top: 1px solid var(--border-strongc);
+}
+
+.controls form { display: flex; gap: var(--sp-5); align-items: center; }
+.controls .spacer { margin-left: auto; }
+.controls .field-set { display: flex; gap: var(--sp-7); align-items: baseline; min-width: 0; }
+.controls .field { display: flex; gap: var(--sp-3); align-items: baseline; font: var(--type-data); }
+
+.controls .key {
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.controls .clone { font: var(--type-data); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-7);
+  height: 28px;
+  padding: 0 var(--edge);
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border-subtle);
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status kbd { color: var(--text-muted); font: var(--type-label); }
+
+/* ---- controls ----------------------------------------------------------- */
+
+button, .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--control-h);
+  padding: 0 var(--pad-inline);
+  font: var(--type-label);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  border: 1px solid var(--border-strongc);
+  border-radius: var(--radius-1);
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition-control);
+}
+
+.button { border-bottom: 1px solid var(--border-strongc); }
+button:hover, .button:hover { background: var(--surface-hover); color: var(--text-strong); }
+button:active, .button:active { background: var(--surface-active); }
+
+button.primary { background: var(--action-bg); color: var(--action-fg); border-color: transparent; }
+button.primary:hover { background: var(--action-bg-hover); color: var(--action-fg); }
+button.primary:active { background: var(--action-bg-active); }
+
+button.danger { background: var(--rust-3); color: var(--paper-0); border-color: transparent; }
+button.danger:hover, button.danger:active { background: var(--rust-2); color: var(--paper-0); }
+
+input[type="text"] {
+  height: var(--control-h);
+  padding: 0 var(--pad-inline);
+  font: var(--type-data);
+  color: var(--text-strong);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strongc);
+  border-radius: var(--radius-1);
+  min-width: 240px;
+}
+
+input[type="text"]::placeholder { color: var(--text-faint); }
+
+/* ---- blob ---------------------------------------------------------------- */
+
+.blob { width: 100%; border-collapse: collapse; font: var(--type-code); }
+
+.blob td.ln {
+  width: 60px;
+  padding: 0 var(--sp-5);
+  text-align: right;
+  vertical-align: top;
+  color: var(--text-faint);
+  font-size: var(--fs-meta);
+  user-select: none;
+  background: var(--surface-sunken);
+  border-right: 1px solid var(--border-subtle);
+}
+
+.blob td.line { padding: 0 var(--edge); }
+.blob td.line pre { margin: 0; white-space: pre; color: var(--text-body); }
+
+/* ---- diff ---------------------------------------------------------------- */
+
+.diff { margin: 0; font: var(--type-code); }
+
+.diff .line {
+  display: block;
+  padding: 0 var(--edge);
+  border-left: var(--bw-thick) solid transparent;
+  white-space: pre;
+  color: var(--text-body);
+}
+
+.diff .diff-add { background: var(--diff-add-bg); border-left-color: var(--diff-add-gutter); color: var(--status-ok-fg); }
+.diff .diff-del { background: var(--diff-del-bg); border-left-color: var(--diff-del-gutter); color: var(--status-danger-fg); }
+.diff .diff-hunk { background: var(--status-info-bg); color: var(--status-info-fg); }
+.diff .diff-file { background: var(--surface-sunken); color: var(--text-strong); border-bottom: 1px solid var(--border-subtle); }
+.diff .diff-ctx { background: var(--diff-ctx-bg); }
+
+/* ---- commit message ------------------------------------------------------ */
+
+/* subject and body are one block: the gap inside it is smaller than the gap
+   around it */
+.note { padding-bottom: var(--sp-6); border-bottom: 1px solid var(--border-subtle); }
+
+.subject {
+  margin: 0;
+  padding: 0 var(--edge);
+  max-width: var(--measure);
+  font: var(--type-h4);
+  color: var(--text-strong);
+}
+
+.message {
+  margin: var(--sp-5) 0 0;
+  padding: 0 var(--edge);
+  font: var(--type-code);
+  color: var(--text-body);
+  white-space: pre-wrap;
+}
+
+/* ---- stat list ----------------------------------------------------------- */
+
+.stat li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  height: var(--row-h);
+  padding: 0 var(--edge);
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: var(--bw-thick) solid transparent;
+  font: var(--type-data);
+  transition: background var(--dur-instant) var(--ease-mech);
+}
+
+.stat li:hover { background: var(--surface-hover); }
+.stat li[aria-selected="true"] { background: var(--surface-selected); border-left-color: var(--border-accent); }
+.stat .added { color: var(--status-ok-fg); min-width: 44px; text-align: right; }
+.stat .removed { color: var(--status-danger-fg); min-width: 44px; }
+
+/* ---- error --------------------------------------------------------------- */
+
+.fault { padding: var(--sp-10) var(--edge); }
+.fault .code { font: var(--type-display); font-variant-numeric: tabular-nums; color: var(--text-strong); letter-spacing: var(--ls-display); }
+.fault p { max-width: var(--measure); }
+.fault p + p { margin-top: var(--sp-5); }
+
+ul { list-style: none; margin: 0; padding: 0; }
+
+/* ---- narrow: one column, panes stack ------------------------------------ */
+
+@media (max-width: 900px) {
+  .panes.split { grid-template-columns: minmax(0, 1fr); }
+  .pane + .pane { border-left: 0; border-top: 1px solid var(--border-default); }
+}

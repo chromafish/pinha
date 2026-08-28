@@ -1,0 +1,82 @@
+= Git hosting
+:revdate: 2026-09-10
+:status: Draft
+:toc:
+:sectnums:
+
+== Context
+
+Git hosting. Minimal single-node service that hosts bare git repositories from a single directory on disk, speaks git smart HTTP, and preserves Jujutsu `change-id` trailers without running `jj`.
+
+== Scope
+
+* Host repositories: create and delete repos over the web and directly on disk, browse branches, commit history, files at any revision, and diffs with Jujutsu change-ID resolution, and serve raw blobs and smart-HTTP clone/fetch/push.
+* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and Prometheus `GET /metrics`, filesystem backup via copy/snapshot, no quota or auth in v0.1.
+
+== Abstractions
+
+=== Repository
+
+A bare git repository on disk at `$ROOT/<name>.git` with standard layout (`HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, `description`). No nesting (`group/foo.git` not supported), single OS owner, no per-repo permissions. `HEAD` defines the default branch, `description` feeds the list, `config` is default bare plus `http.receivepack true`. Validated per request; no metadata store or index.
+
+=== Revision
+
+A string that resolves to a commit in order: full commit ID, then branch, then tag, then Jujutsu change ID (full or unique prefix). Short commit IDs are not resolved; ambiguous change-ID prefixes return all matches. Branch names containing `/` are not reachable via browse URLs (single `:rev` segment) but remain reachable via clone/push.
+
+=== Commit
+
+Git commit with metadata, parents, full diff, and preserved trailers including `change-id`. History and commit views show the Git commit ID plus `change-id` when present; divergent commits sharing one change ID are shown individually with no grouping in v0.1.
+
+=== Surface
+
+HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), and operating surface (repo root / listen address / base URL config, JSON widelogs, Prometheus metrics, background maintenance).
+
+== Mechanics
+
+=== Repositories
+
+The operator sets a repo root directory, e.g. `/srv/pinha`. Layout per repo is the standard bare one (`HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, `description`), with no nesting in v0.1 (`$ROOT/foo.git`, never `$ROOT/group/foo.git`). A single OS user owns the root and all repos, with no per-repo permissions. `HEAD` sets the default branch, and `description` feeds the repo list (missing means name only). Repo `config` stays default bare plus `http.receivepack true`, with no hooks and no alternates in v0.1. Backup and restore are filesystem copies (`rsync`, volume snapshot) with no export format, and there is no quota: a full disk fails the push.
+
+==== Create
+
+Create is `POST /repos` with a `name`. The server initializes the repo in a temporary directory and atomically renames it to `<name>.git`, so a half-created repo is never listed. Concurrent creates for the same name serialize and the loser gets 409. Doing `mkdir` plus `git init --bare` by hand is equivalent.
+
+==== Read
+
+The listing includes every child directory ending in `.git` that is a valid bare repository. Non-repo directories are skipped for listing, and opening an invalid repo shows an error without auto-fixing.
+
+==== Delete
+
+Delete is `DELETE /:repo`. The server first renames `<name>.git` out of the listing, so new requests stop resolving it while in-flight ones drain, then removes the renamed directory asynchronously. Rename is delete plus create in v0.1, and update is push.
+
+=== Browsing
+
+The UI serves a repo list with name, default-branch head, and `description` contents when present, plus per-repo summary pages with default branch, branch list, and recent commits. Routes:
+
+* `GET /` — repo list.
+* `GET /:repo` — summary.
+* `GET /:repo/tree/:rev/*path` — file listing or blob at `:rev`, defaulting to the default branch.
+* `GET /:repo/commit/:id` — metadata, parents, and full diff.
+* `GET /:repo/raw/:rev/*path` — raw blob bytes.
+
+A `:rev` resolves as full commit ID first, then branch, then tag, then Jujutsu change ID (full or unique prefix); short commit IDs are not resolved, while change-ID prefixes are, and ambiguous prefixes list all matches. Commit and history views show the Git commit ID plus the `change-id` trailer when present, with divergent commits sharing one change ID shown individually and no grouping in v0.1. The server never runs `jj` and only preserves the `change-id` trailers clients send, so `jj git clone` and `jj git fetch` use the same smart-HTTP endpoints as git.
+
+Git is the source of truth. There is no metadata store and no index; each request reads the bare repo on disk via `git` or libgit2.
+
+=== Clone and push
+
+Transport is smart HTTP only: `GET /:repo/info/refs`, `POST /:repo/git-upload-pack` for clone and fetch, and `POST /:repo/git-receive-pack` for push. The server advertises all branches and tags with no filtering. Push covers `refs/heads/*` and `refs/tags/*` for create, update, delete, and force-push, with no protection and no other namespaces in v0.1. Concurrent pushes to the same ref serialize on git's own locking, so the loser retries. Maintenance runs in supervised background processes, which are cheap in Elixir: a task after each receive runs `git gc --auto`, plus a periodic job handles pruning and repacking without blocking push responses. Pushes preserve commit trailers including `change-id`, the server never rewrites commits, and `jj git push` works unchanged.
+
+=== Operating
+
+Deployment is a single release plus the repo directory, configured with repo root path, listen address, and public base URL. Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs. Metrics are Prometheus text at `GET /metrics` on the same port with no auth:
+
+* `http_requests_total{route,status}` — request count.
+* `http_request_duration_ms` — request latency.
+* `git_fetches_total{repo}` — fetch count.
+* `git_pushes_total{repo}` — push count.
+* `git_ref_updates_total{repo}` — ref update count.
+* `repos_total` — repo count.
+* `repo_disk_bytes{repo}` — disk usage (cached `du`, refreshed by a background process roughly every 60s).
+
+There is no alerting and no tracing in v0.1; the operator scrapes `/metrics` with anything Prometheus-compatible.

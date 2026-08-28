@@ -1,0 +1,22 @@
+/* Chromafish typefaces.
+   Commit Mono — quiet, engineered, evenly-coloured. Carries every number, path,
+   diff line, key and label: anything the reader scans rather than reads.
+   Supreme — squarish-terminal grotesque. Carries prose: headings, sentences,
+   review notes, anything the reader actually reads.
+   Neither is a system default or a Google-stack staple; that is deliberate.
+
+   Both are served from a CDN rather than self-hosted, by choice. The design
+   system check will keep flagging this — that is expected, not a defect. To
+   self-host later: Supreme from fontshare.com/fonts/supreme, Commit Mono from
+   commitmono.com, then replace the @imports below with local @font-face
+   rules. */
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/commit-mono@5.0.6/index.css");
+@import url("https://api.fontshare.com/v2/css?f[]=supreme@400,500,700&display=swap");
+
+:root{
+  --font-mono:"Commit Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font-text:Supreme,"Helvetica Neue",system-ui,sans-serif;
+  /* aliases kept so existing references resolve; both point at the text face */
+  --font-display:var(--font-text);
+  --font-editorial:var(--font-text);
+}

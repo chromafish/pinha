@@ -1,0 +1,103 @@
+<Layouts.app title={@repo.name} up="/">
+  <div class="panes split">
+    <section class="pane">
+      <header class="pane-head">
+        <span>Refs</span>
+        <span class="count">{length(@branches) + length(@tags)}</span>
+      </header>
+
+      <p :if={@repo.description} class="lede">{@repo.description}</p>
+
+      <table :if={@branches != []} class="table">
+        <thead>
+          <tr>
+            <th>Branch</th>
+            <th>Head</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={branch <- @branches} data-row>
+            <td>
+              <a class="ref" href={tree_path(@repo.name, branch.name)}>{branch.name}</a>
+              <span :if={branch.name == @default_branch} class="tag">default</span>
+            </td>
+            <td>
+              <a class="id" href={commit_path(@repo.name, branch.id)}>{short(branch.id)}</a>
+            </td>
+            <td class="right">{format_date(branch.date)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p :if={@branches == []} class="empty">
+        No branches. Push one: <code>git push origin main</code>.
+      </p>
+
+      <table :if={@tags != []} class="table">
+        <thead>
+          <tr>
+            <th>Tag</th>
+            <th>Commit</th>
+            <th>Subject</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={tag <- @tags} data-row>
+            <td><a class="ref" href={tree_path(@repo.name, tag.name)}>{tag.name}</a></td>
+            <td><a class="id" href={commit_path(@repo.name, tag.id)}>{short(tag.id)}</a></td>
+            <td class="prose wide">{tag.subject}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p :if={@tags == []} class="empty">No tags. Push one: <code>git push origin v1</code>.</p>
+    </section>
+
+    <section class="pane">
+      <header class="pane-head">
+        <span>Recent commits</span>
+        <span class="count">{length(@commits)}</span>
+      </header>
+
+      <p :if={@commits == []} class="empty">No commits. Push one to see it here.</p>
+
+      <table :if={@commits != []} class="table">
+        <thead>
+          <tr>
+            <th>Commit</th>
+            <th>Change</th>
+            <th>Subject</th>
+            <th>Author</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={commit <- @commits} data-row>
+            <td>
+              <a class="id" href={commit_path(@repo.name, commit.id)}>{short(commit.id)}</a>
+            </td>
+            <td class="change-id">{short(commit.change_id)}</td>
+            <td class="prose wide">{commit.subject}</td>
+            <td class="prose">{commit.author_name}</td>
+            <td class="right">{format_date(commit.author_date)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <:controls>
+    <code class="clone">git clone {clone_url(@repo.name)}</code>
+
+    <form
+      class="spacer"
+      method="post"
+      action={repo_path(@repo.name)}
+      onsubmit="return confirm('Delete this repository? This removes every ref and object.')"
+    >
+      <input type="hidden" name="_method" value="delete" />
+      <button type="submit" class="danger">Delete repository</button>
+    </form>
+  </:controls>
+</Layouts.app>

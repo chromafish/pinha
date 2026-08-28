@@ -1,0 +1,22 @@
+/* Mechanical, short, linear-ish. Nothing overshoots — a review tool must never
+   feel springy. Longest UI motion is 220ms. */
+:root{
+  --dur-instant:80ms; /* @kind other */
+  --dur-fast:120ms; /* @kind other */
+  --dur-base:160ms; /* @kind other */
+  --dur-slow:220ms; /* @kind other */
+  --dur-type:900ms; /* @kind other */
+  --ease-mech:cubic-bezier(0.2,0,0,1); /* @kind other */
+  --ease-out:cubic-bezier(0.16,1,0.3,1); /* @kind other */
+  --ease-step:steps(8,end); /* @kind other */
+  --transition-control: background var(--dur-fast) var(--ease-mech),color var(--dur-fast) var(--ease-mech),border-color var(--dur-fast) var(--ease-mech);
+}
+@media (prefers-reduced-motion:reduce){
+  :root{
+    --dur-instant:0ms; /* @kind other */
+    --dur-fast:0ms; /* @kind other */
+    --dur-base:0ms; /* @kind other */
+    --dur-slow:0ms; /* @kind other */
+    --dur-type:0ms; /* @kind other */
+  }
+}

@@ -1,0 +1,23 @@
+/* Everything is square. Hairlines and a one-step surface change do the
+   structural work. There are no hard offset shadows and no dashed borders:
+   depth is a change of plane, not a drawn drop shadow. */
+:root{
+  --radius-0:0px; --radius-1:0px; --radius-round:50%;
+  --bw-hair:1px; --bw-thick:2px;
+  --border-hair:1px solid var(--paper-3);
+  --border-strong:1px solid var(--ink-2);
+  --border-focus:2px solid var(--moss-3);
+  --rule:1px solid var(--paper-3);
+
+  --shadow-none:none;
+  /* Floating things (dialog, toast, tooltip) separate from the page with a
+     strong hairline plus a quiet, wide shade — never a hard offset block. */
+  --shadow-float:0 1px 2px color-mix(in oklab,var(--ink-0) 8%,transparent),0 10px 28px color-mix(in oklab,var(--ink-0) 12%,transparent);
+  --shadow-inset:inset 0 -1px 0 0 var(--paper-3);  /* seated rows, tab strips */
+  /* deprecated aliases — resolve to nothing so old references stay harmless */
+  --shadow-offset:none;
+  --shadow-offset-ink:none;
+
+  --grid-dot:radial-gradient(var(--paper-3) 1px,transparent 1px);
+  --grid-dot-size:8px 8px;
+}

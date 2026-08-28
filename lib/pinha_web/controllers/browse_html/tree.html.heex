@@ -1,0 +1,75 @@
+<Layouts.app up={tree_path(@repo.name, @target.name, parent_path(@path) || "")}>
+  <:trail>
+    <.crumbs repo={@repo} target={@target} path={@path} />
+  </:trail>
+
+  <div class="panes split">
+    <section class="pane">
+      <header class="pane-head">
+        <span>Files</span>
+        <span class="count">{length(@entries)}</span>
+      </header>
+
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Size</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :if={parent_path(@path)} data-row>
+            <td class="wide">
+              <a class="path" href={tree_path(@repo.name, @target.name, parent_path(@path))}>
+                ..
+              </a>
+            </td>
+            <td></td>
+          </tr>
+          <tr :for={entry <- @entries} data-row>
+            <td class="wide">
+              <a class="path" href={tree_path(@repo.name, @target.name, entry.path)}>
+                {if entry.type == "tree", do: entry.name <> "/", else: entry.name}
+              </a>
+            </td>
+            <td class="right">{format_bytes(entry.size)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="pane">
+      <header class="pane-head">
+        <span>History</span>
+        <span class="count">{length(@commits)}</span>
+      </header>
+
+      <p :if={@commits == []} class="empty">No commits touch this path.</p>
+
+      <table :if={@commits != []} class="table">
+        <thead>
+          <tr>
+            <th>Commit</th>
+            <th>Change</th>
+            <th>Subject</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={commit <- @commits} data-row>
+            <td>
+              <a class="id" href={commit_path(@repo.name, commit.id)}>{short(commit.id)}</a>
+            </td>
+            <td class="change-id">{short(commit.change_id)}</td>
+            <td class="prose wide">{commit.subject}</td>
+            <td class="right">{format_date(commit.author_date)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <:controls>
+    <.target_info target={@target} />
+  </:controls>
+</Layouts.app>
