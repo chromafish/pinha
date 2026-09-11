@@ -58,7 +58,7 @@ defmodule PinhaWeb.RepoControllerTest do
 
     test "rejects invalid names", %{conn: conn} do
       assert conn |> post("/repos", %{"name" => "../evil"}) |> json_response(422)
-      assert build_conn() |> post("/repos", %{}) |> json_response(422)
+      assert signed_in_conn() |> post("/repos", %{}) |> json_response(422)
     end
   end
 
@@ -106,7 +106,9 @@ defmodule PinhaWeb.RepoControllerTest do
 
     test "404s for a missing repository and 400s for an invalid name", %{conn: conn} do
       assert conn |> get("/missing") |> html_response(404) =~ "no such repository"
-      assert build_conn() |> get("/..%2Fevil") |> html_response(400) =~ "invalid repository name"
+
+      assert signed_in_conn() |> get("/..%2Fevil") |> html_response(400) =~
+               "invalid repository name"
     end
   end
 

@@ -8,6 +8,8 @@ defmodule Pinha.Application do
     File.mkdir_p!(Pinha.Config.repo_root())
 
     children = [
+      Pinha.Repo,
+      Pinha.Accounts.Recovery,
       Pinha.Metrics,
       {Task.Supervisor, name: Pinha.TaskSupervisor},
       Pinha.Repos.Creator,

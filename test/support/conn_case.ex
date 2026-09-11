@@ -8,10 +8,14 @@ defmodule PinhaWeb.ConnCase do
   to build common data structures and query the data layer.
 
   Tests share one repo root through the application environment, so they run
-  serially.
+  serially. Every route but the sign-in surface needs a user, so the `conn`
+  handed to a test is already signed in; reach for `build_conn/0` to see what
+  a signed-out request gets.
   """
 
   use ExUnit.CaseTemplate
+
+  alias Pinha.Accounts
 
   using do
     quote do
@@ -25,11 +29,51 @@ defmodule PinhaWeb.ConnCase do
       import Phoenix.ConnTest
       import PinhaWeb.ConnCase
       import Pinha.RepoCase
+      import Pinha.AccountsFixtures
       alias Pinha.Repos
     end
   end
 
-  setup _tags do
-    {:ok, conn: Phoenix.ConnTest.build_conn(), root: Pinha.RepoCase.setup_root!()}
+  setup tags do
+    # The endpoint answers in its own processes, so they share this test's
+    # connection rather than checking out one of their own.
+    owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Pinha.Repo, shared: not tags[:async])
+    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
+
+    user = Pinha.AccountsFixtures.user_fixture()
+    Process.put(:pinha_test_user, user)
+
+    {:ok,
+     conn: log_in_user(Phoenix.ConnTest.build_conn(), user),
+     user: user,
+     root: Pinha.RepoCase.setup_root!()}
+  end
+
+  @doc "Gives `conn` a live session for `user`, skipping the passkey ceremony."
+  def log_in_user(conn, user) do
+    conn
+    |> Plug.Test.init_test_session(%{})
+    |> Plug.Conn.put_session("user_token", Accounts.create_session(user))
+  end
+
+  @doc "A fresh connection signed in as the test's user."
+  def signed_in_conn do
+    user = Process.get(:pinha_test_user) || raise "no user in this test"
+    log_in_user(Phoenix.ConnTest.build_conn(), user)
+  end
+
+  @doc """
+  A URL carrying HTTP Basic credentials, the way a git remote does.
+
+  The email is percent-encoded because it contains the `@` that separates
+  credentials from the host.
+  """
+  def authenticated_url(user, path) do
+    secret = Pinha.AccountsFixtures.token_fixture(user)
+    uri = URI.parse(Pinha.RepoCase.base_url())
+
+    %{uri | userinfo: URI.encode_www_form(user.email) <> ":" <> secret}
+    |> URI.to_string()
+    |> Kernel.<>(path)
   end
 end

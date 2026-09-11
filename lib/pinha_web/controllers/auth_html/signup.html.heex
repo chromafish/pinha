@@ -1,0 +1,34 @@
+<Layouts.app current_user={assigns[:current_user]} title="sign up">
+  <div class="panes">
+    <section class="pane">
+      <header class="pane-head">
+        <span>{if @first?, do: "Claim this server", else: "Sign up"}</span>
+      </header>
+
+      <p :if={@first?} class="lede">
+        No one has an account here yet, so this form claims the server. Sign-up closes
+        afterwards unless the operator sets <code>PINHA_SIGNUP_OPEN</code>.
+      </p>
+
+      <p :if={not @open?} class="empty">
+        Sign-up is closed. An operator can authorize one registration from the release
+        console, which is also how a lost passkey is recovered.
+      </p>
+
+      <form :if={@open?} class="form" id="signup" data-ceremony="signup">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" autocomplete="username webauthn" required />
+
+        <label for="label">Passkey name</label>
+        <input type="text" id="label" name="label" placeholder="laptop" />
+
+        <button type="submit" class="primary">Create passkey</button>
+        <p class="note" data-status></p>
+      </form>
+
+      <p class="lede">
+        Already have an account? <a href="/signin">Sign in</a>.
+      </p>
+    </section>
+  </div>
+</Layouts.app>

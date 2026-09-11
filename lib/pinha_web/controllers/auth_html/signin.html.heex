@@ -1,0 +1,22 @@
+<Layouts.app current_user={assigns[:current_user]} title="sign in">
+  <div class="panes">
+    <section class="pane">
+      <header class="pane-head">
+        <span>Sign in</span>
+      </header>
+
+      <p class="lede">
+        Your browser will ask for the passkey you registered. There is nothing to type.
+      </p>
+
+      <form class="form" id="signin" data-ceremony="signin">
+        <button type="submit" class="primary">Use a passkey</button>
+        <p class="note" data-status></p>
+      </form>
+
+      <p class="lede">
+        No account yet? <a href="/signup">Sign up</a>.
+      </p>
+    </section>
+  </div>
+</Layouts.app>

@@ -3,8 +3,9 @@ defmodule PinhaWeb.Observability do
   One canonical widelog line per HTTP request, plus the request metrics.
 
   The line goes to stdout as JSON, carrying the route, repo, rev, git
-  protocol, status, duration, byte counts, and user agent; push lines also
-  carry per-ref old and new tips, truncated after `:log_max_refs` refs.
+  protocol, authenticated user, status, duration, byte counts, and user agent;
+  push lines also carry per-ref old and new tips, truncated after
+  `:log_max_refs` refs.
   """
 
   alias Pinha.Config
@@ -59,6 +60,7 @@ defmodule PinhaWeb.Observability do
       repo: repo_name(conn),
       rev: conn.path_params["rev"] || conn.path_params["id"],
       git: conn.private[:pinha_git_service] || "none",
+      user: conn.assigns[:current_user] && conn.assigns.current_user.id,
       status: conn.status || 0,
       duration_ms: Float.round(duration_ms, 3),
       req_bytes: conn.private[:pinha_req_bytes] || request_bytes(conn),

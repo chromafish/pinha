@@ -6,8 +6,8 @@ defmodule PinhaWeb.GitHttpControllerTest do
 
   @change_id "kmpsxwvrlouvzysnkulnnnttrrytwstn"
 
-  setup do
-    [url: base_url() <> "/demo.git"]
+  setup %{user: user} do
+    [url: authenticated_url(user, "/demo.git")]
   end
 
   test "clone, push, and clone back over HTTPS transport", %{url: url} do
@@ -108,16 +108,16 @@ defmodule PinhaWeb.GitHttpControllerTest do
     assert body =~ "refs/heads/main"
     assert get_resp_header(conn, "cache-control") == ["no-cache, max-age=0, must-revalidate"]
 
-    assert response(get(build_conn(), "/demo.git/info/refs"), 403) =~ "smart HTTP"
-    assert response(get(build_conn(), "/demo.git/info/refs?service=git-evil"), 403)
+    assert response(get(signed_in_conn(), "/demo.git/info/refs"), 403) =~ "smart HTTP"
+    assert response(get(signed_in_conn(), "/demo.git/info/refs?service=git-evil"), 403)
   end
 
   test "unknown and invalid repositories are rejected", %{conn: conn} do
     assert response(get(conn, "/missing.git/info/refs?service=git-upload-pack"), 404)
-    assert response(get(build_conn(), "/..%2Fevil/info/refs?service=git-upload-pack"), 400)
+    assert response(get(signed_in_conn(), "/..%2Fevil/info/refs?service=git-upload-pack"), 400)
 
     conn =
-      build_conn()
+      signed_in_conn()
       |> put_req_header("content-type", "application/x-git-upload-pack-request")
       |> post("/missing.git/git-upload-pack", "0000")
 
@@ -128,7 +128,7 @@ defmodule PinhaWeb.GitHttpControllerTest do
     seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
 
     conn =
-      build_conn()
+      signed_in_conn()
       |> put_req_header("content-type", "application/x-git-upload-pack-request")
       |> put_req_header("content-encoding", "gzip")
       |> post("/demo.git/git-upload-pack", :zlib.gzip("0000"))

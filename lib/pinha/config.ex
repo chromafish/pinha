@@ -21,4 +21,7 @@ defmodule Pinha.Config do
   def log_max_refs, do: Application.get_env(:pinha, :log_max_refs, 20)
 
   def widelog?, do: Application.get_env(:pinha, :widelog, true)
+
+  @doc "Whether sign-up stays open once the server has a user."
+  def signup_open?, do: Application.get_env(:pinha, :signup_open, false)
 end

@@ -1,4 +1,7 @@
-<Layouts.app up={tree_path(@repo.name, @target.name, parent_path(@path) || "")}>
+<Layouts.app
+  current_user={assigns[:current_user]}
+  up={tree_path(@repo.name, @target.name, parent_path(@path) || "")}
+>
   <:trail>
     <.crumbs repo={@repo} target={@target} path={@path} />
   </:trail>

@@ -1,4 +1,8 @@
-<Layouts.app title={"change " <> @rev} up={repo_path(@repo.name)}>
+<Layouts.app
+  current_user={assigns[:current_user]}
+  title={"change " <> @rev}
+  up={repo_path(@repo.name)}
+>
   <div class="panes">
     <section class="pane">
       <header class="pane-head">

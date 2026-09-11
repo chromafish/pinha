@@ -6,6 +6,12 @@ config :pinha, PinhaWeb.Endpoint,
   secret_key_base: "3nciSawfbd3V7fTcfQzHjUssWRgG11Ea6IbaYzpYM/SO+HdJ10qr7hNTWmdvtprn",
   server: true
 
+# The suite owns its own database, named by TEST_DATABASE_URL in
+# config/runtime.exs.
+config :pinha, Pinha.Repo,
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: 5
+
 config :pinha,
   repo_root: Path.expand("tmp/test_repos"),
   base_url: "http://127.0.0.1:4002",

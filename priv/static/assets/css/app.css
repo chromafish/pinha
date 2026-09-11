@@ -69,6 +69,15 @@ body {
   color: var(--text-muted);
 }
 
+.frame-head .who {
+  margin-left: auto;
+  padding-left: var(--sp-6);
+  font: var(--type-meta);
+  color: var(--text-muted);
+}
+
+.frame-head .reading + .who { margin-left: 0; }
+
 /* ---- the scrolling region ----------------------------------------------- */
 
 .region { overflow: auto; min-height: 0; }
@@ -202,6 +211,52 @@ body {
 .kv dd a + a { margin-left: var(--sp-5); }
 .kv dd.prose { font: var(--type-body); color: var(--text-body); }
 
+/* ---- forms ---------------------------------------------------------------- */
+
+.form {
+  display: grid;
+  gap: var(--sp-4);
+  justify-items: start;
+  padding: var(--sp-6) var(--edge);
+  max-width: 420px;
+}
+
+.form label {
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.form input[type="text"], .form input[type="email"] { width: 100%; }
+.form button { margin-top: var(--sp-3); }
+
+.note { font: var(--type-meta); color: var(--text-muted); min-height: 1.2em; margin: 0; }
+
+/* A token is readable once, on the page that mints it. */
+.note-strong {
+  margin: 0 var(--edge);
+  padding: var(--sp-5) var(--sp-6);
+  background: var(--status-warn-bg);
+  border-left: var(--bw-thick) solid var(--status-warn-line);
+}
+
+.note-strong p { margin: 0 0 var(--sp-3); font: var(--type-body); color: var(--text-body); }
+.note-strong p:last-child { margin-bottom: 0; }
+
+.secret {
+  display: block;
+  padding: var(--sp-4) 0;
+  font: var(--type-data);
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+input.narrow { min-width: 140px; }
+
+.table td form { display: inline-flex; }
+
 /* ---- control bar and status bar ----------------------------------------- */
 
 .controls {
@@ -276,7 +331,7 @@ button.primary:active { background: var(--action-bg-active); }
 button.danger { background: var(--rust-3); color: var(--paper-0); border-color: transparent; }
 button.danger:hover, button.danger:active { background: var(--rust-2); color: var(--paper-0); }
 
-input[type="text"] {
+input[type="text"], input[type="email"] {
   height: var(--control-h);
   padding: 0 var(--pad-inline);
   font: var(--type-data);
@@ -287,7 +342,7 @@ input[type="text"] {
   min-width: 240px;
 }
 
-input[type="text"]::placeholder { color: var(--text-faint); }
+input[type="text"]::placeholder, input[type="email"]::placeholder { color: var(--text-faint); }
 
 /* ---- blob ---------------------------------------------------------------- */
 

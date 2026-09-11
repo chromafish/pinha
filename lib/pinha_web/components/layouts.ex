@@ -16,6 +16,7 @@ defmodule PinhaWeb.Layouts do
   attr :count, :string, default: nil, doc: "right-hand reading on the header line"
   attr :up, :string, default: nil, doc: "path the `u` key walks up to"
   attr :status, :string, default: nil, doc: "extra reading on the status bar"
+  attr :current_user, :map, default: nil, doc: "who is signed in, if anyone"
 
   slot :inner_block, required: true
   slot :trail, doc: "link trail shown on the header line in place of the title"
@@ -31,6 +32,8 @@ defmodule PinhaWeb.Layouts do
         <span :if={@trail == [] and @title} class="where">{@title}</span>
 
         <span :if={@count} class="reading">{@count}</span>
+
+        <a :if={@current_user} class="who" href="/settings">{@current_user.email}</a>
       </header>
 
       <div class="region">

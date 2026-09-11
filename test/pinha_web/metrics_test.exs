@@ -53,11 +53,11 @@ defmodule PinhaWeb.MetricsTest do
     assert Pinha.Git.log(repo, "main", limit: 1) == before
   end
 
-  test "a push schedules background maintenance" do
+  test "a push schedules background maintenance", %{user: user} do
     create_repo!("demo")
     work = tmp_dir!()
     clone = Path.join(work, "one")
-    git!(work, ["clone", "--quiet", base_url() <> "/demo.git", clone])
+    git!(work, ["clone", "--quiet", authenticated_url(user, "/demo.git"), clone])
     File.write!(Path.join(clone, "a.txt"), "a\n")
     git!(clone, ["add", "-A"])
     git!(clone, ["commit", "--quiet", "-m", "first"])

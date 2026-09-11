@@ -1,0 +1,78 @@
+= Authentication
+:revdate: 2026-09-10
+:status: Draft
+:toc:
+:sectnums:
+
+== Context
+
+We need auth. The web UI authenticates with passkeys; git clients cannot, so they authenticate with tokens minted in the UI.
+
+== Scope
+
+* Users with passkey sign-up and sign-in, managing passkeys and access tokens from the UI.
+* Authenticated git transport: clone, fetch, and push carry an access token over HTTP Basic.
+
+== Abstractions
+
+=== User
+
+A person who may reach the server, identified by an email address. Email is the login name shown in the UI and the username git sends; no message is ever delivered to it in v0.1. A user also carries a handle: 32 opaque bytes that authenticators store as the WebAuthn user handle, distinct from the primary key so that what an authenticator holds reveals nothing about how many users exist.
+
+=== Session
+
+A browser's proof of a completed sign-in. The cookie carries 32 random bytes; the server stores only their SHA-256, so a dump of the table cannot be replayed as a login.
+
+=== Access token
+
+What git sends. Minted in the UI, shown once, stored as a SHA-256 hash, and presented as the HTTP Basic password on every smart-HTTP request. Tokens carry a label, an optional expiry, and the time they were last used.
+
+=== Repository
+
+See link:0001.pinha.git-hosting.adoc[Git hosting].
+
+=== Surface
+
+The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-in, sign-out, and settings. Every route other than the sign-in surface and `GET /metrics` requires an authenticated user, granted at the server with no per-repository permissions.
+
+== Mechanics
+
+=== Sign up
+
+`GET /signup` collects an email and a passkey label. The server generates a challenge, stores it in the session, and returns it with the relying party ID taken from the host of the configured public base URL. The browser calls `navigator.credentials.create`, and the server verifies the attestation with `wax_`, stores the credential, and starts a session. A user may register a passkey per device, and settings registers further ones the same way. WebAuthn requires a secure context, so production must be served over HTTPS; `localhost` is exempt, which is what makes development work.
+
+Sign-up is open while no user exists, so the first person to reach a fresh server claims it. Once a user exists, sign-up is refused unless the operator sets `PINHA_SIGNUP_OPEN`.
+
+=== Sign in
+
+`GET /signin` issues a challenge with no credential list, so the browser offers any discoverable passkey for the relying party and the user is identified by the handle the authenticator returns. `wax_` verifies the assertion, and the stored signature counter must advance: a counter that fails to move is how a cloned authenticator announces itself, and the attempt is refused and logged.
+
+=== Sessions
+
+A successful ceremony mints 32 random bytes, stores the SHA-256, and writes the raw value into the signed session cookie after renewing the session, so a fixated session cannot survive the sign-in. Sign-out deletes the row. Sessions expire 60 days after they were last used. The session logic follows the `phx.gen.auth` plug of the same shape.
+
+=== Git transport
+
+`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user email as the username, an access token as the password. The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token.
+
+=== Recovery
+
+A user with no usable passkey is recovered by the operator, who authorizes one registration ceremony for that user from the release console. The authorization lives in the node's memory for fifteen minutes and dies with a restart, so nothing persistent can be stolen.
+
+=== Operating
+
+Users persist in Postgres, reached with `DATABASE_URL`. The intended deployment is Neon: TLS with chain verification against the OS trust store, and unnamed prepared statements when the URL names a pooled endpoint, because that endpoint is PgBouncer in transaction mode. Repositories stay on disk and are still backed up by copying the repo root; the database is backed up by Neon. A database outage stops sign-in and token verification, so it stops git transport too.
+
+Widelog lines carry the user ID when a request is authenticated. Metrics are unchanged, and `GET /metrics` stays unauthenticated.
+
+== Data Model
+
+`users`: `email` (unique), `handle` (unique, 32 bytes), timestamps.
+
+`user_credentials`: `user_id`, `credential_id` (unique), `public_key`, `aaguid`, `sign_count`, `label`, `last_used_at`, inserted timestamp.
+
+`user_sessions`: `user_id`, `token_hash` (unique), `last_used_at`, inserted timestamp.
+
+`user_api_tokens`: `user_id`, `token_hash` (unique), `label`, `expires_at`, `last_used_at`, inserted timestamp.
+
+Every table cascades on user deletion.

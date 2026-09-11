@@ -2,6 +2,16 @@ import Config
 
 config :pinha, repo_root: Path.expand("tmp/repos")
 
+# Users live in Postgres, reached with DATABASE_URL. config/runtime.exs
+# carries the URL and the TLS settings for every environment.
+#
+# Connection errors are not allowed to print the credentials they failed
+# with, since the URL is a live Neon credential rather than a local socket.
+config :pinha, Pinha.Repo,
+  stacktrace: true,
+  show_sensitive_data_on_connection_error: false,
+  pool_size: 2
+
 config :pinha, PinhaWeb.Endpoint,
   # Binding to loopback prevents access from other machines.
   http: [ip: {127, 0, 0, 1}],

@@ -38,7 +38,7 @@ defmodule PinhaWeb.ObservabilityTest do
         Pinha.Git.PktLine.flush()
 
     conn =
-      build_conn()
+      signed_in_conn()
       |> put_req_header("content-type", "application/x-git-receive-pack-request")
       |> post("/demo.git/git-receive-pack", body)
 

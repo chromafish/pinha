@@ -27,3 +27,8 @@ pinha-*.tar
 
 # Host-specific server configuration.
 /server/
+
+# Local connection strings. DATABASE_URL points at a live Neon branch.
+/.env
+
+.neon

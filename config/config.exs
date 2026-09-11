@@ -6,6 +6,7 @@
 import Config
 
 config :pinha,
+  ecto_repos: [Pinha.Repo],
   # Root directory holding the bare repositories. Overridden at runtime.
   repo_root: Path.expand("priv/repos"),
   # Public base URL advertised in the UI for clone commands.
