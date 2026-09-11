@@ -84,6 +84,8 @@ body {
 
 .panes { display: grid; height: 100%; min-height: 0; }
 .panes.split { grid-template-columns: minmax(420px, 38%) minmax(0, 1fr); }
+.panes.triple { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.panes.quad { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 .pane { min-width: 0; overflow: auto; padding-bottom: var(--sp-9); }
 .pane.bare { padding-top: var(--sp-5); }  /* no header line to hold the top edge */
@@ -434,6 +436,8 @@ ul { list-style: none; margin: 0; padding: 0; }
 /* ---- narrow: one column, panes stack ------------------------------------ */
 
 @media (max-width: 900px) {
-  .panes.split { grid-template-columns: minmax(0, 1fr); }
+  .panes.split,
+  .panes.triple,
+  .panes.quad { grid-template-columns: minmax(0, 1fr); }
   .pane + .pane { border-left: 0; border-top: 1px solid var(--border-default); }
 }

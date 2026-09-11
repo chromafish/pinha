@@ -19,9 +19,10 @@ defmodule Pinha.Metrics do
   @help %{
     "http_requests_total" => {"counter", "HTTP requests by route and status."},
     "http_request_duration_ms" => {"histogram", "HTTP request duration in milliseconds."},
-    "git_fetches_total" => {"counter", "Clones and fetches served per repository."},
-    "git_pushes_total" => {"counter", "Pushes received per repository."},
+    "git_fetches_total" => {"counter", "Clones and fetches served per repository and transport."},
+    "git_pushes_total" => {"counter", "Pushes received per repository and transport."},
     "git_ref_updates_total" => {"counter", "Ref updates requested by pushes per repository."},
+    "ssh_auth_failures_total" => {"counter", "Public keys the SSH listener refused."},
     "repos_total" => {"gauge", "Repositories in the repo root."},
     "repo_disk_bytes" => {"gauge", "Disk usage per repository, from a cached du."}
   }

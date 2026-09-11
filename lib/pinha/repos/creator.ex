@@ -22,8 +22,9 @@ defmodule Pinha.Repos.Creator do
   def start_link(opts),
     do: GenServer.start_link(__MODULE__, :ok, Keyword.put_new(opts, :name, __MODULE__))
 
-  @spec create(String.t()) :: {:ok, Repo.t()} | {:error, :exists | :failed}
-  def create(name), do: GenServer.call(__MODULE__, {:create, name}, 30_000)
+  @spec create(String.t(), String.t() | nil) :: {:ok, Repo.t()} | {:error, :exists | :failed}
+  def create(name, owner_uid \\ nil),
+    do: GenServer.call(__MODULE__, {:create, name, owner_uid}, 30_000)
 
   @spec delete(String.t()) :: :ok | {:error, :not_found | :failed}
   def delete(name), do: GenServer.call(__MODULE__, {:delete, name}, 30_000)
@@ -41,15 +42,15 @@ defmodule Pinha.Repos.Creator do
   end
 
   @impl true
-  def handle_call({:create, name}, _from, state) do
-    {:reply, do_create(name), state}
+  def handle_call({:create, name, owner_uid}, _from, state) do
+    {:reply, do_create(name, owner_uid), state}
   end
 
   def handle_call({:delete, name}, _from, state) do
     {:reply, do_delete(name), state}
   end
 
-  defp do_create(name) do
+  defp do_create(name, owner_uid) do
     root = Config.repo_root()
     target = Repos.dir(name)
     File.mkdir_p!(root)
@@ -62,9 +63,10 @@ defmodule Pinha.Repos.Creator do
       with :ok <- File.mkdir_p(tmp),
            {:ok, _} <- Git.run(root, ["init", "--bare", "--quiet", "--initial-branch=main", tmp]),
            {:ok, _} <- Git.run(tmp, ["config", "http.receivepack", "true"]),
+           {:ok, _} <- write_owner(tmp, owner_uid),
            :ok <- File.rm(Path.join(tmp, "description")),
            :ok <- File.rename(tmp, target) do
-        {:ok, %Repo{name: name, dir: target, description: nil}}
+        {:ok, %Repo{name: name, dir: target, description: nil, owner_uid: owner_uid}}
       else
         error ->
           Logger.error("repo create failed for #{name}: #{inspect(error)}")
@@ -73,6 +75,11 @@ defmodule Pinha.Repos.Creator do
       end
     end
   end
+
+  # The owner goes in before the rename, so the repo is never visible without
+  # one and a create that dies half way leaves nothing to inherit.
+  defp write_owner(_dir, nil), do: {:ok, ""}
+  defp write_owner(dir, uid), do: Git.run(dir, ["config", "pinha.owner", uid])
 
   defp do_delete(name) do
     dir = Repos.dir(name)

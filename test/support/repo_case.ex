@@ -36,9 +36,9 @@ defmodule Pinha.RepoCase do
     root
   end
 
-  @doc "Creates a bare repository through the service itself."
-  def create_repo!(name) do
-    {:ok, repo} = Repos.create(name)
+  @doc "Creates a bare repository through the service itself, owned by `owner`."
+  def create_repo!(name, owner \\ nil) do
+    {:ok, repo} = Repos.create(name, owner)
     repo
   end
 

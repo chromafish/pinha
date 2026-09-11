@@ -1,23 +1,23 @@
 = Authentication
-:revdate: 2026-09-10
+:revdate: 2026-09-11
 :status: Draft
 :toc:
 :sectnums:
 
 == Context
 
-We need auth. The web UI authenticates with passkeys; git clients cannot, so they authenticate with tokens minted in the UI.
+We need auth. The web UI authenticates with passkeys; git clients cannot, so they authenticate with an access token over HTTP or an SSH key, both registered in the UI.
 
 == Scope
 
-* Users with passkey sign-up and sign-in, managing passkeys and access tokens from the UI.
-* Authenticated git transport: clone, fetch, and push carry an access token over HTTP Basic.
+* Users with passkey sign-up and sign-in, managing passkeys, invites, access tokens, and SSH keys from the UI.
+* Authenticated git transport: clone, fetch, and push carry an access token over HTTP Basic, or an SSH key over the SSH listener.
 
 == Abstractions
 
 === User
 
-A person who may reach the server, identified by an email address. Email is the login name shown in the UI and the username git sends; no message is ever delivered to it in v0.1. A user also carries a handle: 32 opaque bytes that authenticators store as the WebAuthn user handle, distinct from the primary key so that what an authenticator holds reveals nothing about how many users exist.
+A person who may reach the server, identified by an email address. Email is the login name shown in the UI and the username git sends; no message is ever delivered to it in v0.1. A user also carries a handle: 32 opaque bytes that authenticators store as the WebAuthn user handle, distinct from the primary key so that what an authenticator holds reveals nothing about how many users exist. A user carries a `uid` as well, `u_` followed by 128 random bits in lowercase base32, minted once at registration and never reused: it is what the rest of the system stores when it needs to name a user outside the database, and repository ownership in link:0001.pinha.git-hosting.adoc[Git hosting] is the first thing to do so. It is separate from the handle, which stays the authenticators' business, and separate from the row ID, which counts users to anyone who can read one. An email or a passkey may change under it without moving anything that points at the user. A user is an admin or an ordinary user; admins mint invites, and the person who claims the server is the first admin.
 
 === Session
 
@@ -27,13 +27,21 @@ A browser's proof of a completed sign-in. The cookie carries 32 random bytes; th
 
 What git sends. Minted in the UI, shown once, stored as a SHA-256 hash, and presented as the HTTP Basic password on every smart-HTTP request. Tokens carry a label, an optional expiry, and the time they were last used.
 
+=== SSH key
+
+What git presents over SSH. A public key pasted into the UI in `authorized_keys` form and stored whole next to its SHA-256 fingerprint, which is unique across all users so one key cannot belong to two people. A key carries a label and the time it was last used; it has no expiry, and deleting the row revokes it.
+
+=== Invite
+
+What admits a registration. Minted by an admin, shown once, stored as a SHA-256 hash, and pasted into the sign-up form by the person registering. An invite carries a label and an expiry, and admits exactly one registration.
+
 === Repository
 
 See link:0001.pinha.git-hosting.adoc[Git hosting].
 
 === Surface
 
-The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-in, sign-out, and settings. Every route other than the sign-in surface and `GET /metrics` requires an authenticated user, granted at the server with no per-repository permissions.
+The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-in, sign-out, and settings. Every route other than the sign-in surface and `GET /metrics` requires an authenticated user. Reading a repository asks for nothing more; writing or deleting one asks for its owner or an admin, by the rule in link:0001.pinha.git-hosting.adoc[Git hosting]. The SSH listener admits only registered keys, and the user it resolves is subject to the same rule.
 
 == Mechanics
 
@@ -41,7 +49,19 @@ The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-
 
 `GET /signup` collects an email and a passkey label. The server generates a challenge, stores it in the session, and returns it with the relying party ID taken from the host of the configured public base URL. The browser calls `navigator.credentials.create`, and the server verifies the attestation with `wax_`, stores the credential, and starts a session. A user may register a passkey per device, and settings registers further ones the same way. WebAuthn requires a secure context, so production must be served over HTTPS; `localhost` is exempt, which is what makes development work.
 
-Sign-up is open while no user exists, so the first person to reach a fresh server claims it. Once a user exists, sign-up is refused unless the operator sets `PINHA_SIGNUP_OPEN`.
+A registration is admitted by a token and nothing else. The first one takes the claim token below; every later one takes an invite pasted into the form next to the email and the label. The token is checked when the challenge is requested and spent in the transaction that stores the credential, so a challenge sitting in a browser cannot outlive its window and two people holding one invite cannot both register.
+
+=== Claiming the server
+
+A fresh server belongs to nobody until the operator proves they are the operator. A node that starts with no users mints a claim token, 32 random bytes kept in memory, and writes the claim URL once on stdout as `/signup?claim=<token>`. The operator reads it from the logs of the deployment they just started, or mints another from the release console with `Pinha.Accounts.Registration.claim()`. The token lives fifteen minutes and dies with the node, so there is nothing persistent to steal and a token that expires before the operator gets to it is replaced by asking for another.
+
+The browser carries the token to the challenge request, which compares it against the one in memory in constant time and records that it did in the session, next to the challenge. Storing the credential spends the token, so a second holder of the same token is refused at the moment it matters. A running node mints nothing further on its own once a user exists: deleting the last user leaves a server that admits no registration until the operator asks for a token.
+
+=== Invites
+
+An admin mints an invite at `/settings`, rendered once as `pinha_invite_<32 bytes>` and stored as a hash. Handing it over is the admin's problem, by whatever channel they already have with the person, because the server delivers no mail. An invite expires seven days after it is minted and admits one registration. Settings lists what is outstanding, who minted it, and whether it was used; deleting the row revokes it.
+
+Sign-up looks the invite up by hash, which is the same single indexed read as an access token, refuses one that is expired or already spent, and records it in the session with the challenge. The registration inserts the user, stores the credential, and marks the invite consumed in one transaction, so a ceremony that fails leaves the invite usable and one that succeeds cannot be replayed.
 
 === Sign in
 
@@ -53,11 +73,17 @@ A successful ceremony mints 32 random bytes, stores the SHA-256, and writes the 
 
 === Git transport
 
-`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user email as the username, an access token as the password. The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token.
+`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user email as the username, an access token as the password. The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token. SSH carries no Basic credentials: the connection is already authenticated by key before any git command runs, which is why `git@<host>:<name>.git` pushes without a prompt. Either transport, once it knows the user, checks the repository's owner before starting git; authentication says who is asking, and link:0001.pinha.git-hosting.adoc[Git hosting] says what they may do.
+
+=== SSH keys
+
+`/settings` takes a key pasted in `authorized_keys` form: type, base64 body, and an optional comment on one line. The server parses it with `:public_key`, accepts Ed25519, ECDSA, and RSA of at least 2048 bits, refuses DSA, and stores the key with its SHA-256 fingerprint, falling back to the comment when the label field is left blank. A fingerprint already registered is refused whoever pastes it, so a second account cannot quietly attach itself to someone's key. Settings lists each key by label, algorithm, `SHA256:` fingerprint, and last use, and deleting the row revokes it.
+
+Authentication looks the offered key up by fingerprint, the same single indexed read the token path does, and binds the connection to the owner for its lifetime; link:0001.pinha.git-hosting.adoc[Git hosting] covers what that session may then run. `last_used_at` is written at most once an hour per key, so a fetch loop does not turn into a write per connection, and a rejected key is logged with its fingerprint and the peer address and counted. A connection authenticated before a key was deleted survives until it ends, which is bounded by the fetch or push it is running.
 
 === Recovery
 
-A user with no usable passkey is recovered by the operator, who authorizes one registration ceremony for that user from the release console. The authorization lives in the node's memory for fifteen minutes and dies with a restart, so nothing persistent can be stolen.
+A user with no usable passkey is recovered by the operator, who authorizes one registration ceremony for that user from the release console, naming the user by email; no message is sent to it, and the same in-memory store holds the claim token. The authorization lives in the node's memory for fifteen minutes and dies with a restart, so nothing persistent can be stolen.
 
 === Operating
 
@@ -67,12 +93,16 @@ Widelog lines carry the user ID when a request is authenticated. Metrics are unc
 
 == Data Model
 
-`users`: `email` (unique), `handle` (unique, 32 bytes), timestamps.
+`users`: `email` (unique), `uid` (unique), `handle` (unique, 32 bytes), `admin`, timestamps.
 
 `user_credentials`: `user_id`, `credential_id` (unique), `public_key`, `aaguid`, `sign_count`, `label`, `last_used_at`, inserted timestamp.
 
 `user_sessions`: `user_id`, `token_hash` (unique), `last_used_at`, inserted timestamp.
 
 `user_api_tokens`: `user_id`, `token_hash` (unique), `label`, `expires_at`, `last_used_at`, inserted timestamp.
+
+`user_ssh_keys`: `user_id`, `fingerprint` (unique, SHA-256), `public_key`, `algorithm`, `label`, `last_used_at`, inserted timestamp.
+
+`user_invites`: `token_hash` (unique), `label`, `created_by_user_id`, `expires_at`, `consumed_at`, `consumed_by_user_id`, inserted timestamp.
 
 Every table cascades on user deletion.

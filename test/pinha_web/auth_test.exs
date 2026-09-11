@@ -2,7 +2,7 @@ defmodule PinhaWeb.AuthTest do
   use PinhaWeb.ConnCase, async: false
 
   alias Pinha.Accounts
-  alias Pinha.Accounts.Recovery
+  alias Pinha.Accounts.Registration
 
   # The repository list answers machines as well as browsers, so which one is
   # asking decides whether a refusal is a redirect or a 401.
@@ -117,21 +117,64 @@ defmodule PinhaWeb.AuthTest do
   end
 
   describe "sign-up" do
-    test "is closed once the server has a user", %{user: _user} do
-      assert build_conn() |> get("/signup") |> html_response(200) =~ "Sign-up is closed"
+    test "asks for an invite once the server has a user", %{user: _user} do
+      html = build_conn() |> get("/signup") |> html_response(200)
+
+      assert html =~ "Registration takes an invite"
+      assert html =~ "pinha_invite_"
     end
 
-    test "refuses a challenge when it is closed" do
+    test "refuses a challenge that carries no invite" do
       conn =
         build_conn()
         |> put_req_header("accept", "application/json")
         |> post("/signup/challenge", %{"email" => "someone@example.com", "label" => "k"})
 
-      assert %{"error" => "sign-up is closed on this server"} = json_response(conn, 403)
+      assert %{"error" => "that invite is spent, expired, or was never minted"} =
+               json_response(conn, 403)
+    end
+
+    test "hands out a challenge to whoever pastes an invite", %{user: admin} do
+      secret = invite_fixture(admin)
+
+      conn =
+        build_conn()
+        |> put_req_header("accept", "application/json")
+        |> post("/signup/challenge", %{
+          "email" => "invited@example.com",
+          "label" => "k",
+          "invite" => secret
+        })
+
+      assert %{"publicKey" => %{"user" => %{"name" => "invited@example.com"}}} =
+               json_response(conn, 200)
+    end
+
+    test "refuses an invite that has already been spent", %{user: admin} do
+      secret = invite_fixture(admin)
+      {:ok, invite} = Accounts.fetch_usable_invite(secret)
+
+      {:ok, _} =
+        Accounts.register_user(
+          %{email: "first@example.com", handle: :crypto.strong_rand_bytes(32)},
+          credential_attrs("first key"),
+          invite: invite
+        )
+
+      conn =
+        build_conn()
+        |> put_req_header("accept", "application/json")
+        |> post("/signup/challenge", %{
+          "email" => "second@example.com",
+          "label" => "k",
+          "invite" => secret
+        })
+
+      assert json_response(conn, 403)
     end
 
     test "offers a challenge to a recovering user the operator authorized", %{user: user} do
-      assert :ok = Recovery.authorize(user.email)
+      assert :ok = Registration.authorize(user.email)
 
       conn =
         build_conn()
@@ -142,6 +185,43 @@ defmodule PinhaWeb.AuthTest do
                json_response(conn, 200)
 
       assert name == user.email
+    end
+
+    test "asks a fresh server for the claim token, and refuses the wrong one" do
+      Pinha.Repo.delete_all(Pinha.Accounts.User)
+      Registration.claim()
+
+      html = build_conn() |> get("/signup") |> html_response(200)
+      assert html =~ "Claim token"
+
+      conn =
+        build_conn()
+        |> put_req_header("accept", "application/json")
+        |> post("/signup/challenge", %{
+          "email" => "operator@example.com",
+          "label" => "k",
+          "claim" => "not the token"
+        })
+
+      assert %{"error" => error} = json_response(conn, 403)
+      assert error =~ "claim token"
+    end
+
+    test "hands out a challenge to whoever holds the claim token" do
+      Pinha.Repo.delete_all(Pinha.Accounts.User)
+      token = Registration.claim() |> String.split("claim=") |> List.last()
+
+      conn =
+        build_conn()
+        |> put_req_header("accept", "application/json")
+        |> post("/signup/challenge", %{
+          "email" => "operator@example.com",
+          "label" => "k",
+          "claim" => token
+        })
+
+      assert %{"publicKey" => %{"user" => %{"name" => "operator@example.com"}}} =
+               json_response(conn, 200)
     end
 
     test "refuses a challenge for an existing user with no authorization", %{user: user} do

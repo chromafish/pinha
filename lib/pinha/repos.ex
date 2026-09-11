@@ -2,9 +2,17 @@ defmodule Pinha.Repos do
   @moduledoc """
   Repository lifecycle on disk. Git is the source of truth: there is no
   metadata store, so every function here reads the repo root directly.
+
+  Ownership follows the same rule. A repo records the `uid` of whoever may
+  push to it as `pinha.owner` in its own config, which is read here straight
+  from the config file: a listing of fifty repos is fifty small file reads
+  rather than fifty `git` processes.
   """
 
+  alias Pinha.Accounts
+  alias Pinha.Accounts.User
   alias Pinha.Config
+  alias Pinha.Git
   alias Pinha.Repos.Repo
 
   @name_regex ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/
@@ -80,15 +88,62 @@ defmodule Pinha.Repos do
   end
 
   @doc """
-  Creates `<name>.git`.
+  Creates `<name>.git`, owned by `user`.
 
   Serialized through `Pinha.Repos.Creator`, so concurrent creates of the same
-  name never race: the loser gets `{:error, :exists}`.
+  name never race: the loser gets `{:error, :exists}`. The owner is written
+  before the directory is moved into place, so a repo is never listed unowned.
   """
-  @spec create(String.t()) :: {:ok, Repo.t()} | {:error, :invalid_name | :exists | :failed}
-  def create(name) do
+  @spec create(String.t(), User.t() | nil) ::
+          {:ok, Repo.t()} | {:error, :invalid_name | :exists | :failed}
+  def create(name, owner \\ nil) do
     with {:ok, name} <- normalize_name(name) do
-      Pinha.Repos.Creator.create(name)
+      Pinha.Repos.Creator.create(name, owner && owner.uid)
+    end
+  end
+
+  @doc """
+  Who may push to this repo.
+
+  Every user reads every repo, so there is no read side to this. Writing is
+  the owner and admins; a repo with no owner, made by hand or left behind by a
+  deleted user, is writable by admins alone until one assigns an owner.
+  """
+  @spec writable_by?(Repo.t(), User.t() | nil) :: boolean()
+  def writable_by?(_repo, nil), do: false
+  def writable_by?(_repo, %User{admin: true}), do: true
+  def writable_by?(%Repo{owner_uid: nil}, _user), do: false
+  def writable_by?(%Repo{owner_uid: uid}, %User{uid: uid}), do: true
+  def writable_by?(_repo, _user), do: false
+
+  @doc "The user who owns this repo, when the `uid` still names one."
+  @spec owner(Repo.t()) :: {:ok, User.t()} | :error
+  def owner(%Repo{owner_uid: nil}), do: :error
+  def owner(%Repo{owner_uid: uid}), do: Accounts.fetch_user_by_uid(uid)
+
+  @doc """
+  Hands a repo to the user with this email.
+
+  Written with `git config`, so the repo on disk stays the record of who owns
+  it. Called from the repo page and from the release console.
+  """
+  @spec set_owner(String.t(), String.t()) ::
+          {:ok, Repo.t()}
+          | {:error, :invalid_name | :invalid_repo | :not_found | :no_such_user | :failed}
+  def set_owner(name, email) when is_binary(email) do
+    with {:ok, repo} <- fetch(name),
+         {:ok, user} <- fetch_user(email) do
+      case Git.run(repo.dir, ["config", "pinha.owner", user.uid]) do
+        {:ok, _} -> {:ok, %{repo | owner_uid: user.uid}}
+        {:error, _} -> {:error, :failed}
+      end
+    end
+  end
+
+  defp fetch_user(email) do
+    case Accounts.fetch_user_by_email(email) do
+      {:ok, user} -> {:ok, user}
+      :error -> {:error, :no_such_user}
     end
   end
 
@@ -131,8 +186,53 @@ defmodule Pinha.Repos do
     end
   end
 
+  @doc """
+  The `pinha.owner` entry of a repo's config, read from the file itself.
+
+  git's config format is an INI with tab-indented entries; only this one key
+  is looked for, and anything unreadable reads as no owner, which falls back
+  to admins.
+  """
+  @spec owner_uid(String.t()) :: String.t() | nil
+  def owner_uid(dir) do
+    case File.read(Path.join(dir, "config")) do
+      {:ok, text} -> find_owner(text)
+      {:error, _} -> nil
+    end
+  end
+
+  defp find_owner(text) do
+    text
+    |> String.split("\n")
+    |> Enum.reduce_while({nil, nil}, fn line, {section, _} = acc ->
+      case String.trim(line) do
+        "[" <> rest ->
+          {:cont, {rest |> String.trim_trailing("]") |> String.downcase(), nil}}
+
+        entry ->
+          case {section, String.split(entry, "=", parts: 2)} do
+            {"pinha", [key, value]} ->
+              if String.trim(key) |> String.downcase() == "owner" do
+                {:halt, {section, String.trim(value)}}
+              else
+                {:cont, acc}
+              end
+
+            _ ->
+              {:cont, acc}
+          end
+      end
+    end)
+    |> elem(1)
+    |> case do
+      nil -> nil
+      "" -> nil
+      uid -> uid
+    end
+  end
+
   defp load(name) do
     dir = dir(name)
-    %Repo{name: name, dir: dir, description: description(dir)}
+    %Repo{name: name, dir: dir, description: description(dir), owner_uid: owner_uid(dir)}
   end
 end

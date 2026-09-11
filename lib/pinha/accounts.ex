@@ -1,11 +1,14 @@
 defmodule Pinha.Accounts do
   @moduledoc """
-  Users, their passkeys, browser sessions, and the tokens git sends.
+  Users, their passkeys, browser sessions, and what git authenticates with:
+  tokens over HTTP and public keys over SSH.
 
   Every secret this module hands out is returned once, in the clear, and kept
   only as a SHA-256: a session token, an API token. Lookups hash the presented
   value and read an index, so verifying a token on each git request is one
-  indexed read rather than a key derivation.
+  indexed read rather than a key derivation. An SSH key is not a secret, but
+  it is stored the same way and looked up by the same kind of read, on the
+  SHA-256 fingerprint.
   """
 
   import Ecto.Query
@@ -13,13 +16,17 @@ defmodule Pinha.Accounts do
   alias Ecto.Multi
   alias Pinha.Accounts.ApiToken
   alias Pinha.Accounts.Credential
+  alias Pinha.Accounts.Invite
   alias Pinha.Accounts.Session
+  alias Pinha.Accounts.SshKey
   alias Pinha.Accounts.User
   alias Pinha.Repo
 
   @session_validity_days 60
   @token_bytes 32
   @token_prefix "pinha_"
+  @invite_prefix "pinha_invite_"
+  @invite_validity_days 7
   # Reading a token is a read. Recording that it was used is a write, so it
   # happens at most once an hour per row rather than once per request.
   @touch_after_seconds 3600
@@ -30,15 +37,6 @@ defmodule Pinha.Accounts do
   @spec count_users() :: non_neg_integer()
   def count_users, do: Repo.aggregate(User, :count)
 
-  @doc """
-  Whether sign-up is currently accepted.
-
-  The first person to reach a fresh server claims it; after that the operator
-  decides with `PINHA_SIGNUP_OPEN`.
-  """
-  @spec signup_open?() :: boolean()
-  def signup_open?, do: count_users() == 0 or Pinha.Config.signup_open?()
-
   @doc "Fetches a user by the WebAuthn handle an authenticator returned."
   @spec fetch_user_by_handle(binary()) :: {:ok, User.t()} | :error
   def fetch_user_by_handle(handle) when is_binary(handle) do
@@ -47,6 +45,26 @@ defmodule Pinha.Accounts do
       user -> {:ok, user}
     end
   end
+
+  @doc """
+  Fetches a user by the `uid` something outside the database recorded.
+
+  Repository ownership is the caller: a repo names its owner in its own git
+  config, and this turns that name back into a user.
+  """
+  @spec fetch_user_by_uid(String.t() | nil) :: {:ok, User.t()} | :error
+  def fetch_user_by_uid(uid) when is_binary(uid) do
+    case Repo.get_by(User, uid: uid) do
+      nil -> :error
+      user -> {:ok, user}
+    end
+  end
+
+  def fetch_user_by_uid(_), do: :error
+
+  @doc "Every user, by email, for the owner picker."
+  @spec list_users() :: [User.t()]
+  def list_users, do: Repo.all(from(u in User, order_by: u.email))
 
   @doc "Fetches a user by email, however it was capitalized."
   @spec fetch_user_by_email(String.t()) :: {:ok, User.t()} | :error
@@ -61,21 +79,108 @@ defmodule Pinha.Accounts do
   Creates a user and their first passkey in one transaction.
 
   A half-registered user with no passkey could never sign in, so neither row
-  lands without the other.
+  lands without the other. An `:invite` in `opts` is spent in the same
+  transaction, so two people holding one invite cannot both register.
   """
-  @spec register_user(map(), map()) ::
+  @spec register_user(map(), map(), keyword()) ::
           {:ok, %{user: User.t(), credential: Credential.t()}}
-          | {:error, atom(), Ecto.Changeset.t()}
-  def register_user(user_attrs, credential_attrs) do
+          | {:error, atom(), Ecto.Changeset.t() | :invite_spent}
+  def register_user(user_attrs, credential_attrs, opts \\ []) do
     Multi.new()
     |> Multi.insert(:user, User.changeset(%User{}, user_attrs))
     |> Multi.insert(:credential, fn %{user: user} ->
       Credential.changeset(%Credential{}, Map.put(credential_attrs, :user_id, user.id))
     end)
+    |> Multi.run(:invite, fn repo, %{user: user} ->
+      spend_invite(repo, Keyword.get(opts, :invite), user)
+    end)
     |> Repo.transaction()
     |> case do
       {:ok, result} -> {:ok, result}
-      {:error, step, changeset, _changes} -> {:error, step, changeset}
+      {:error, step, reason, _changes} -> {:error, step, reason}
+    end
+  end
+
+  ## Invites
+
+  @doc """
+  Mints an invite and returns it in the clear, the only time it is readable.
+
+  It expires in a week and admits one registration. Handing it over is the
+  admin's problem: the server delivers no mail.
+  """
+  @spec create_invite(User.t(), String.t()) ::
+          {:ok, String.t(), Invite.t()} | {:error, Ecto.Changeset.t()}
+  def create_invite(%User{} = admin, label) do
+    secret =
+      @invite_prefix <> Base.url_encode64(:crypto.strong_rand_bytes(@token_bytes), padding: false)
+
+    attrs = %{
+      token_hash: hash(secret),
+      label: label,
+      created_by_user_id: admin.id,
+      expires_at: DateTime.add(now(), @invite_validity_days * 24 * 3600, :second)
+    }
+
+    case %Invite{} |> Invite.changeset(attrs) |> Repo.insert() do
+      {:ok, invite} -> {:ok, secret, invite}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @doc "Every invite, newest first, with whoever minted and spent it."
+  @spec list_invites() :: [Invite.t()]
+  def list_invites do
+    Repo.all(from(i in Invite, order_by: [desc: i.id], preload: [:created_by, :consumed_by]))
+  end
+
+  @doc "The invite a registration presented, if it is neither spent nor expired."
+  @spec fetch_usable_invite(String.t()) :: {:ok, Invite.t()} | :error
+  def fetch_usable_invite(secret) when is_binary(secret) do
+    one_usable_invite(from(i in Invite, where: i.token_hash == ^hash(secret)))
+  end
+
+  @doc "The same, by row id, for a ceremony already under way."
+  @spec fetch_usable_invite_by_id(integer()) :: {:ok, Invite.t()} | :error
+  def fetch_usable_invite_by_id(id) when is_integer(id) do
+    one_usable_invite(from(i in Invite, where: i.id == ^id))
+  end
+
+  @doc "Revokes an invite that has not been spent."
+  @spec delete_invite(integer()) :: :ok | {:error, :not_found}
+  def delete_invite(id) do
+    case Repo.get(Invite, id) do
+      nil ->
+        {:error, :not_found}
+
+      invite ->
+        Repo.delete!(invite)
+        :ok
+    end
+  end
+
+  defp one_usable_invite(query) do
+    query = from(i in query, where: is_nil(i.consumed_at) and i.expires_at > ^now())
+
+    case Repo.one(query) do
+      nil -> :error
+      invite -> {:ok, invite}
+    end
+  end
+
+  # Spending is a guarded update rather than a read and a write, so the row
+  # itself decides which of two concurrent registrations gets it.
+  defp spend_invite(_repo, nil, _user), do: {:ok, nil}
+
+  defp spend_invite(repo, %Invite{} = invite, user) do
+    query =
+      from(i in Invite,
+        where: i.id == ^invite.id and is_nil(i.consumed_at) and i.expires_at > ^now()
+      )
+
+    case repo.update_all(query, set: [consumed_at: now(), consumed_by_user_id: user.id]) do
+      {1, _} -> {:ok, invite.id}
+      {0, _} -> {:error, :invite_spent}
     end
   end
 
@@ -155,6 +260,69 @@ defmodule Pinha.Accounts do
           Repo.delete!(credential)
           :ok
         end
+    end
+  end
+
+  ## SSH keys
+
+  @doc """
+  Registers a public key for a user.
+
+  A fingerprint already on file is refused whoever pastes it, so one key never
+  names two people and a push can always be attributed.
+  """
+  @spec add_ssh_key(User.t(), String.t(), String.t() | nil) ::
+          {:ok, SshKey.t()}
+          | {:error, :unreadable | :unsupported_algorithm | :weak_key | :already_registered}
+  def add_ssh_key(user, text, label \\ nil) do
+    with {:ok, attrs} <- SshKey.parse(text, label) do
+      %SshKey{}
+      |> SshKey.changeset(Map.put(attrs, :user_id, user.id))
+      |> Repo.insert()
+      |> case do
+        {:ok, key} -> {:ok, key}
+        {:error, _changeset} -> {:error, :already_registered}
+      end
+    end
+  end
+
+  @doc "A user's keys, newest first."
+  @spec list_ssh_keys(User.t()) :: [SshKey.t()]
+  def list_ssh_keys(user) do
+    Repo.all(from(k in SshKey, where: k.user_id == ^user.id, order_by: [desc: k.id]))
+  end
+
+  @doc """
+  The user behind a key `ssh` offered, by fingerprint.
+
+  This is the whole of SSH authentication: one indexed read, the same shape as
+  verifying an API token.
+  """
+  @spec fetch_user_by_ssh_fingerprint(binary()) :: {:ok, User.t()} | :error
+  def fetch_user_by_ssh_fingerprint(fingerprint) when is_binary(fingerprint) do
+    query =
+      from(k in SshKey,
+        join: u in assoc(k, :user),
+        where: k.fingerprint == ^fingerprint,
+        select: {k, u}
+      )
+
+    case Repo.one(query) do
+      nil -> :error
+      {key, user} -> {:ok, touch(SshKey, key, user)}
+    end
+  end
+
+  @doc "Revokes a key. Connections already authenticated run to completion."
+  @spec delete_ssh_key(User.t(), integer()) :: :ok | {:error, :not_found}
+  def delete_ssh_key(user, id) do
+    case Repo.get_by(SshKey, id: id, user_id: user.id) do
+      nil ->
+        {:error, :not_found}
+
+      key ->
+        Repo.delete!(key)
+        :ok
     end
   end
 

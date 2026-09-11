@@ -83,7 +83,8 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "second commit"
       assert html =~ "first commit"
       assert html =~ "kmpsxwvr"
-      assert html =~ "git clone"
+      assert html =~ "/demo.git"
+      assert html =~ "ssh://git@"
     end
 
     test "resolves a name given with the .git suffix", %{conn: conn} do
@@ -112,6 +113,40 @@ defmodule PinhaWeb.RepoControllerTest do
     end
   end
 
+  describe "POST /:repo/owner" do
+    test "hands the repository to another user", %{conn: conn, user: admin} do
+      create_repo!("demo", admin)
+      other = user_fixture()
+
+      conn = conn |> browser() |> post("/demo/owner", %{"email" => other.email})
+
+      assert redirected_to(conn) == "/demo"
+      assert {:ok, repo} = Repos.fetch("demo")
+      assert repo.owner_uid == other.uid
+    end
+
+    test "is refused to someone who does not own it" do
+      owner = user_fixture()
+      create_repo!("demo", owner)
+      conn = log_in_user(build_conn(), user_fixture()) |> browser()
+
+      assert conn |> post("/demo/owner", %{"email" => "whoever@example.com"}) |> response(403) =~
+               "only the owner or an admin"
+
+      assert {:ok, repo} = Repos.fetch("demo")
+      assert repo.owner_uid == owner.uid
+    end
+
+    test "reports an email nobody registered", %{conn: conn, user: admin} do
+      create_repo!("demo", admin)
+
+      assert conn
+             |> browser()
+             |> post("/demo/owner", %{"email" => "nobody@example.com"})
+             |> response(404) =~ "no user with that email"
+    end
+  end
+
   describe "DELETE /:repo" do
     test "removes the repository from the listing", %{conn: conn} do
       create_repo!("demo")
@@ -131,6 +166,40 @@ defmodule PinhaWeb.RepoControllerTest do
 
     test "404s for a missing repository", %{conn: conn} do
       assert conn |> delete("/missing") |> json_response(404)
+    end
+
+    test "is refused to someone who does not own it" do
+      create_repo!("demo", user_fixture())
+      conn = log_in_user(build_conn(), user_fixture())
+
+      assert conn |> delete("/demo") |> response(403)
+      assert [_repo] = Repos.list()
+    end
+  end
+
+  describe "ownership" do
+    test "the creator owns what they created", %{conn: conn, user: user} do
+      conn |> post("/repos", %{"name" => "demo"}) |> json_response(201)
+
+      assert {:ok, repo} = Repos.fetch("demo")
+      assert repo.owner_uid == user.uid
+    end
+
+    test "the page names the owner and offers the handover only to them", %{user: admin} do
+      owner = user_fixture()
+      create_repo!("demo", owner)
+
+      html = log_in_user(build_conn(), owner) |> get("/demo") |> html_response(200)
+      assert html =~ owner.email
+      assert html =~ "hand to (email)"
+
+      stranger = log_in_user(build_conn(), user_fixture())
+      html = stranger |> get("/demo") |> html_response(200)
+      assert html =~ owner.email
+      refute html =~ "hand to (email)"
+
+      assert log_in_user(build_conn(), admin) |> get("/demo") |> html_response(200) =~
+               "hand to (email)"
     end
   end
 end

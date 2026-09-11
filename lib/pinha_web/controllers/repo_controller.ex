@@ -1,8 +1,15 @@
 defmodule PinhaWeb.RepoController do
-  @moduledoc "Repo listing, creation, summary, and deletion."
+  @moduledoc """
+  Repo listing, creation, summary, deletion, and handing one to a new owner.
+
+  Creating is open to any authenticated user, who owns what they create.
+  Deleting and reassigning are the owner and admins, the same rule pushing
+  follows.
+  """
 
   use PinhaWeb, :controller
 
+  alias Pinha.Accounts
   alias Pinha.Git
   alias Pinha.Repos
 
@@ -16,7 +23,7 @@ defmodule PinhaWeb.RepoController do
   end
 
   def create(conn, params) do
-    case Repos.create(params["name"] || "") do
+    case Repos.create(params["name"] || "", conn.assigns.current_user) do
       {:ok, repo} ->
         case get_format(conn) do
           "json" ->
@@ -47,9 +54,13 @@ defmodule PinhaWeb.RepoController do
         branches = Git.branches(repo)
         tags = Git.tags(repo)
         commits = if branch, do: Git.log(repo, branch, limit: 20), else: []
+        user = conn.assigns.current_user
 
         render(conn, :show,
           repo: repo,
+          owner: owner(repo),
+          may_write: Repos.writable_by?(repo, user),
+          users: if(Repos.writable_by?(repo, user), do: Accounts.list_users(), else: []),
           default_branch: branch,
           branches: branches,
           tags: tags,
@@ -67,7 +78,41 @@ defmodule PinhaWeb.RepoController do
     end
   end
 
+  def set_owner(conn, %{"repo" => name} = params) do
+    with {:ok, repo} <- Repos.fetch(name),
+         true <- Repos.writable_by?(repo, conn.assigns.current_user),
+         {:ok, _repo} <- Repos.set_owner(name, to_string(params["email"])) do
+      redirect(conn, to: PinhaWeb.Helpers.repo_path(repo.name))
+    else
+      false -> fail(conn, 403, "only the owner or an admin hands over a repository")
+      {:error, :no_such_user} -> fail(conn, 404, "no user with that email")
+      {:error, :invalid_name} -> fail(conn, 400, "invalid repository name")
+      {:error, :not_found} -> fail(conn, 404, "no such repository")
+      {:error, :invalid_repo} -> fail(conn, 500, "not a valid bare repository")
+      {:error, :failed} -> fail(conn, 500, "could not set the owner")
+    end
+  end
+
   def delete(conn, %{"repo" => name}) do
+    with {:ok, repo} <- Repos.fetch(name),
+         true <- Repos.writable_by?(repo, conn.assigns.current_user) do
+      destroy(conn, repo.name)
+    else
+      false ->
+        fail(conn, 403, "only the owner or an admin deletes a repository")
+
+      {:error, :invalid_name} ->
+        fail(conn, 400, "invalid repository name")
+
+      {:error, :invalid_repo} ->
+        fail(conn, 500, "not a valid bare repository")
+
+      {:error, :not_found} ->
+        fail(conn, 404, "no such repository")
+    end
+  end
+
+  defp destroy(conn, name) do
     case Repos.delete(name) do
       :ok ->
         case get_format(conn) do
@@ -83,6 +128,13 @@ defmodule PinhaWeb.RepoController do
 
       {:error, :failed} ->
         fail(conn, 500, "could not delete repository")
+    end
+  end
+
+  defp owner(repo) do
+    case Repos.owner(repo) do
+      {:ok, user} -> user
+      :error -> nil
     end
   end
 
@@ -104,7 +156,8 @@ defmodule PinhaWeb.RepoController do
       description: repo.description,
       default_branch: branch,
       head: head && %{id: head.id, subject: head.subject, change_id: head.change_id},
-      clone_url: PinhaWeb.Helpers.clone_url(repo.name)
+      clone_url: PinhaWeb.Helpers.clone_url(repo.name),
+      ssh_clone_url: PinhaWeb.Helpers.ssh_clone_url(repo.name)
     }
   end
 

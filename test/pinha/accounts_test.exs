@@ -1,25 +1,99 @@
 defmodule Pinha.AccountsTest do
   use Pinha.DataCase, async: false
 
-  alias Pinha.Accounts.Recovery
+  alias Pinha.Accounts.Registration
 
-  describe "sign-up gating" do
-    test "the first user claims a fresh server, and the next one is refused" do
-      assert Accounts.signup_open?()
+  describe "invites" do
+    test "one invite admits one registration and is spent by it" do
+      admin = user_fixture(%{admin: true})
+      secret = invite_fixture(admin)
 
-      user_fixture()
+      assert {:ok, invite} = Accounts.fetch_usable_invite(secret)
 
-      refute Accounts.signup_open?()
+      assert {:ok, %{user: user}} =
+               Accounts.register_user(
+                 %{email: "invited@example.com", handle: :crypto.strong_rand_bytes(32)},
+                 credential_attrs("their key"),
+                 invite: invite
+               )
+
+      refute user.admin
+      assert :error = Accounts.fetch_usable_invite(secret)
+
+      spent = Enum.find(Accounts.list_invites(), &(&1.id == invite.id))
+      assert spent.consumed_by.id == user.id
     end
 
-    test "the operator can leave sign-up open" do
-      user_fixture()
-      Application.put_env(:pinha, :signup_open, true)
-      on_exit(fn -> Application.delete_env(:pinha, :signup_open) end)
+    test "the same invite cannot admit a second registration" do
+      admin = user_fixture(%{admin: true})
+      secret = invite_fixture(admin)
+      {:ok, invite} = Accounts.fetch_usable_invite(secret)
 
-      assert Accounts.signup_open?()
+      assert {:ok, _} =
+               Accounts.register_user(
+                 %{email: "first@example.com", handle: :crypto.strong_rand_bytes(32)},
+                 credential_attrs("first key"),
+                 invite: invite
+               )
+
+      assert {:error, :invite, :invite_spent} =
+               Accounts.register_user(
+                 %{email: "second@example.com", handle: :crypto.strong_rand_bytes(32)},
+                 credential_attrs("second key"),
+                 invite: invite
+               )
+
+      assert :error = Accounts.fetch_user_by_email("second@example.com")
     end
 
+    test "an expired invite admits nothing" do
+      admin = user_fixture(%{admin: true})
+      secret = invite_fixture(admin)
+      {:ok, invite} = Accounts.fetch_usable_invite(secret)
+
+      invite
+      |> Ecto.Changeset.change(
+        expires_at: DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:second)
+      )
+      |> Pinha.Repo.update!()
+
+      assert :error = Accounts.fetch_usable_invite(secret)
+      assert :error = Accounts.fetch_usable_invite_by_id(invite.id)
+    end
+
+    test "revoking one takes it out of circulation" do
+      admin = user_fixture(%{admin: true})
+      secret = invite_fixture(admin)
+      {:ok, invite} = Accounts.fetch_usable_invite(secret)
+
+      assert :ok = Accounts.delete_invite(invite.id)
+      assert :error = Accounts.fetch_usable_invite(secret)
+      assert {:error, :not_found} = Accounts.delete_invite(invite.id)
+    end
+  end
+
+  describe "claiming the server" do
+    test "the claim token admits one registration and then is spent" do
+      token = claim_token()
+
+      assert Registration.claim?(token)
+      refute Registration.claim?("not the token")
+
+      assert Registration.consume_claim(token)
+      refute Registration.claim?(token)
+      refute Registration.consume_claim(token)
+    end
+
+    test "minting again replaces the outstanding token" do
+      first = claim_token()
+      second = claim_token()
+
+      refute Registration.claim?(first)
+      assert Registration.claim?(second)
+    end
+  end
+
+  describe "users" do
     test "an email is claimed once" do
       user = user_fixture()
 
@@ -134,19 +208,148 @@ defmodule Pinha.AccountsTest do
     end
   end
 
+  describe "ssh keys" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "pinha-keys-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf(dir) end)
+      [dir: dir]
+    end
+
+    test "registers a pasted key and finds the user by fingerprint", %{dir: dir} do
+      user = user_fixture()
+      {public, _path} = generate_key(dir, "ed25519")
+
+      assert {:ok, key} = Accounts.add_ssh_key(user, public)
+      assert key.algorithm == "ssh-ed25519"
+      assert byte_size(key.fingerprint) == 32
+      assert key.label =~ "@"
+
+      assert [listed] = Accounts.list_ssh_keys(user)
+      assert listed.id == key.id
+
+      assert {:ok, found} = Accounts.fetch_user_by_ssh_fingerprint(key.fingerprint)
+      assert found.id == user.id
+    end
+
+    test "takes the label from the form when one is given", %{dir: dir} do
+      user = user_fixture()
+      {public, _path} = generate_key(dir, "ed25519")
+
+      assert {:ok, key} = Accounts.add_ssh_key(user, public, "laptop")
+      assert key.label == "laptop"
+    end
+
+    test "one key belongs to one person", %{dir: dir} do
+      {public, _path} = generate_key(dir, "ed25519")
+      {:ok, _} = Accounts.add_ssh_key(user_fixture(), public)
+
+      assert Accounts.add_ssh_key(user_fixture(), public) == {:error, :already_registered}
+    end
+
+    test "refuses what is not a key, and an RSA key too small to be one", %{dir: dir} do
+      user = user_fixture()
+      {weak, _path} = generate_key(dir, "rsa", ["-b", "1024"])
+
+      assert Accounts.add_ssh_key(user, "hello") == {:error, :unreadable}
+      assert Accounts.add_ssh_key(user, "") == {:error, :unreadable}
+      assert Accounts.add_ssh_key(user, weak) == {:error, :weak_key}
+    end
+
+    test "accepts the key types worth accepting", %{dir: dir} do
+      user = user_fixture()
+
+      for {type, args, algorithm} <- [
+            {"ed25519", [], "ssh-ed25519"},
+            {"ecdsa", ["-b", "256"], "ecdsa-sha2-nistp256"},
+            {"rsa", ["-b", "2048"], "ssh-rsa"}
+          ] do
+        {public, _path} = generate_key(dir, type, args)
+        assert {:ok, key} = Accounts.add_ssh_key(user, public)
+        assert key.algorithm == algorithm
+      end
+    end
+
+    test "records use at most once an hour", %{dir: dir} do
+      user = user_fixture()
+      {public, _path} = generate_key(dir, "ed25519")
+      {:ok, key} = Accounts.add_ssh_key(user, public)
+
+      assert {:ok, _} = Accounts.fetch_user_by_ssh_fingerprint(key.fingerprint)
+      [touched] = Accounts.list_ssh_keys(user)
+      assert touched.last_used_at
+
+      assert {:ok, _} = Accounts.fetch_user_by_ssh_fingerprint(key.fingerprint)
+      [again] = Accounts.list_ssh_keys(user)
+      assert again.last_used_at == touched.last_used_at
+    end
+
+    test "revoking a key stops the next connection", %{dir: dir} do
+      user = user_fixture()
+      {public, _path} = generate_key(dir, "ed25519")
+      {:ok, key} = Accounts.add_ssh_key(user, public)
+
+      assert Accounts.delete_ssh_key(user_fixture(), key.id) == {:error, :not_found}
+      assert Accounts.delete_ssh_key(user, key.id) == :ok
+      assert Accounts.list_ssh_keys(user) == []
+      assert Accounts.fetch_user_by_ssh_fingerprint(key.fingerprint) == :error
+    end
+
+    test "deleting a user takes their keys with them", %{dir: dir} do
+      user = user_fixture()
+      {public, _path} = generate_key(dir, "ed25519")
+      {:ok, key} = Accounts.add_ssh_key(user, public)
+
+      Pinha.Repo.delete!(user)
+
+      assert Accounts.fetch_user_by_ssh_fingerprint(key.fingerprint) == :error
+    end
+  end
+
+  describe "uid" do
+    test "is opaque, unique, and outlives an email" do
+      first = user_fixture()
+      second = user_fixture()
+
+      assert first.uid =~ ~r/\Au_[a-z2-7]{26}\z/
+      refute first.uid == second.uid
+
+      assert {:ok, found} = Accounts.fetch_user_by_uid(first.uid)
+      assert found.id == first.id
+
+      renamed =
+        first
+        |> Ecto.Changeset.change(email: "moved#{System.unique_integer([:positive])}@example.com")
+        |> Pinha.Repo.update!()
+
+      assert renamed.uid == first.uid
+      assert Accounts.fetch_user_by_uid("u_nope") == :error
+    end
+  end
+
   describe "recovery" do
     test "an authorization admits one ceremony and then is spent" do
       user = user_fixture()
 
-      refute Recovery.authorized?(user.email)
+      refute Registration.authorized?(user.email)
 
-      assert :ok = Recovery.authorize(String.upcase(user.email))
-      assert Recovery.authorized?(user.email)
+      assert :ok = Registration.authorize(String.upcase(user.email))
+      assert Registration.authorized?(user.email)
 
-      assert Recovery.consume(user.email)
-      refute Recovery.authorized?(user.email)
-      refute Recovery.consume(user.email)
+      assert Registration.consume(user.email)
+      refute Registration.authorized?(user.email)
+      refute Registration.consume(user.email)
     end
+  end
+
+  defp generate_key(dir, type, args \\ []) do
+    path = Path.join(dir, "#{type}-#{System.unique_integer([:positive])}")
+    {_out, 0} = System.cmd("ssh-keygen", ["-q", "-t", type, "-N", "", "-f", path] ++ args)
+    {File.read!(path <> ".pub"), path}
+  end
+
+  defp claim_token do
+    Registration.claim() |> String.split("claim=") |> List.last()
   end
 
   defp errors_on(changeset) do

@@ -80,6 +80,10 @@ defmodule PinhaWeb.Router do
 
     get "/settings", SettingsController, :show
     post "/settings/tokens", SettingsController, :create_token
+    post "/settings/ssh-keys", SettingsController, :create_ssh_key
+    delete "/settings/ssh-keys/:id", SettingsController, :delete_ssh_key
+    post "/settings/invites", SettingsController, :create_invite
+    delete "/settings/invites/:id", SettingsController, :delete_invite
     delete "/settings/tokens/:id", SettingsController, :delete_token
     delete "/settings/passkeys/:id", SettingsController, :delete_credential
     delete "/signout", AuthController, :delete
@@ -104,6 +108,7 @@ defmodule PinhaWeb.Router do
   scope "/", PinhaWeb do
     pipe_through [:browser, :signed_in]
 
+    post "/:repo/owner", RepoController, :set_owner
     get "/:repo", RepoController, :show
     get "/:repo/tree", BrowseController, :tree
     get "/:repo/tree/:rev", BrowseController, :tree

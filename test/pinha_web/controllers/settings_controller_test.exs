@@ -17,6 +17,94 @@ defmodule PinhaWeb.SettingsControllerTest do
     end
   end
 
+  describe "POST /settings/invites" do
+    test "shows the invite once, and never again", %{conn: conn} do
+      html = conn |> post("/settings/invites", %{"label" => "alice"}) |> html_response(200)
+
+      [secret] = Regex.run(~r/pinha_invite_[A-Za-z0-9_-]+/, html)
+      assert {:ok, invite} = Accounts.fetch_usable_invite(secret)
+      assert invite.label == "alice"
+
+      refute signed_in_conn() |> get("/settings") |> html_response(200) =~ secret
+    end
+
+    test "is refused to a user who is not an admin" do
+      conn = log_in_user(build_conn(), user_fixture())
+
+      assert conn |> post("/settings/invites", %{"label" => "sneaky"}) |> response(403)
+
+      assert Accounts.list_invites() == []
+    end
+  end
+
+  describe "POST /settings/ssh-keys" do
+    test "registers a pasted key and shows its fingerprint", %{conn: conn, user: user} do
+      public = generate_key()
+
+      assert conn
+             |> post("/settings/ssh-keys", %{"key" => public, "label" => "laptop"})
+             |> redirected_to() == "/settings"
+
+      assert [key] = Accounts.list_ssh_keys(user)
+      assert key.label == "laptop"
+
+      html = signed_in_conn() |> get("/settings") |> html_response(200)
+      assert html =~ "laptop"
+      assert html =~ "SHA256:"
+      assert html =~ "ssh://git@"
+    end
+
+    test "says what is wrong with a key it will not take", %{conn: conn, user: user} do
+      assert conn |> post("/settings/ssh-keys", %{"key" => "not a key"}) |> response(422) =~
+               "does not look like an SSH public key"
+
+      assert Accounts.list_ssh_keys(user) == []
+    end
+
+    test "refuses a key already registered to someone", %{conn: conn} do
+      public = generate_key()
+      {:ok, _} = Accounts.add_ssh_key(user_fixture(), public)
+
+      assert conn |> post("/settings/ssh-keys", %{"key" => public}) |> response(409) =~
+               "already registered"
+    end
+  end
+
+  describe "DELETE /settings/ssh-keys/:id" do
+    test "revokes a key", %{conn: conn, user: user} do
+      {:ok, key} = Accounts.add_ssh_key(user, generate_key())
+
+      assert conn |> delete("/settings/ssh-keys/#{key.id}") |> redirected_to() == "/settings"
+      assert Accounts.list_ssh_keys(user) == []
+    end
+
+    test "leaves someone else's key alone", %{conn: conn} do
+      {:ok, key} = Accounts.add_ssh_key(user_fixture(), generate_key())
+
+      assert conn |> delete("/settings/ssh-keys/#{key.id}") |> response(404)
+    end
+  end
+
+  describe "DELETE /settings/invites/:id" do
+    test "revokes one that has not been used", %{conn: conn, user: admin} do
+      secret = invite_fixture(admin)
+      {:ok, invite} = Accounts.fetch_usable_invite(secret)
+
+      assert conn |> delete("/settings/invites/#{invite.id}") |> redirected_to() == "/settings"
+      assert :error = Accounts.fetch_usable_invite(secret)
+    end
+
+    test "is refused to a user who is not an admin", %{user: admin} do
+      secret = invite_fixture(admin)
+      {:ok, invite} = Accounts.fetch_usable_invite(secret)
+      conn = log_in_user(build_conn(), user_fixture())
+
+      assert conn |> delete("/settings/invites/#{invite.id}") |> response(403)
+
+      assert {:ok, _} = Accounts.fetch_usable_invite(secret)
+    end
+  end
+
   describe "POST /settings/tokens" do
     test "shows the token once, and never again", %{conn: conn, user: user} do
       html = conn |> post("/settings/tokens", %{"label" => "laptop"}) |> html_response(200)
@@ -95,5 +183,14 @@ defmodule PinhaWeb.SettingsControllerTest do
 
       assert json_response(conn, 401)
     end
+  end
+
+  defp generate_key do
+    path =
+      Path.join(System.tmp_dir!(), "pinha-settings-key-#{System.unique_integer([:positive])}")
+
+    {_out, 0} = System.cmd("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", path])
+    on_exit(fn -> Enum.each([path, path <> ".pub"], &File.rm/1) end)
+    File.read!(path <> ".pub")
   end
 end

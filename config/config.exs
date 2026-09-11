@@ -17,7 +17,12 @@ config :pinha,
   # How often the background process prunes and repacks every repo.
   maintenance_interval_ms: 6 * 60 * 60 * 1000,
   # Number of per-ref old/new tips carried in a push widelog line.
-  log_max_refs: 20
+  log_max_refs: 20,
+  # The SSH listener. The host key directory defaults to `.pinha/ssh` under
+  # the repo root, which the repo listing skips for not ending in `.git`.
+  ssh_enabled: true,
+  ssh_port: 2222,
+  ssh_user: "git"
 
 # Configure the endpoint
 config :pinha, PinhaWeb.Endpoint,

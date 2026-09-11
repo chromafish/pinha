@@ -23,6 +23,23 @@ defmodule PinhaWeb.Helpers do
   @doc "Clone URL built from the configured public base URL."
   def clone_url(name), do: Config.base_url() <> "/" <> segment(name) <> ".git"
 
+  @doc """
+  SSH clone URL.
+
+  A listener on 22 is written the short way every git user already knows; any
+  other port needs the `ssh://` form, which is the only one that can name one.
+  The port is the one the listener actually bound.
+  """
+  def ssh_clone_url(name) do
+    user = Config.ssh_user()
+    host = Config.ssh_host()
+
+    case Pinha.Ssh.port() || Config.ssh_port() do
+      22 -> "#{user}@#{host}:#{segment(name)}.git"
+      port -> "ssh://#{user}@#{host}:#{port}/#{segment(name)}.git"
+    end
+  end
+
   @doc "The configured public base URL."
   def base_url, do: Config.base_url()
 
@@ -58,6 +75,10 @@ defmodule PinhaWeb.Helpers do
     plural = plural || singular <> "es"
     "#{count} #{if count == 1, do: singular, else: plural}"
   end
+
+  @doc "`SHA256:...`, the fingerprint form `ssh-keygen` prints."
+  def format_fingerprint(fingerprint),
+    do: Pinha.Accounts.SshKey.format_fingerprint(fingerprint)
 
   @doc "Short display form of a commit or change id."
   def short(id), do: Pinha.Git.short(id)

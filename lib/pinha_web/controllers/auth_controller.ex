@@ -15,13 +15,16 @@ defmodule PinhaWeb.AuthController do
   require Logger
 
   alias Pinha.Accounts
-  alias Pinha.Accounts.Recovery
+  alias Pinha.Accounts.Registration
   alias Pinha.Accounts.WebAuthn
 
   plug :redirect_if_signed_in when action in [:new_signup, :new_session]
 
-  def new_signup(conn, _params) do
-    render(conn, :signup, open?: Accounts.signup_open?(), first?: Accounts.count_users() == 0)
+  def new_signup(conn, params) do
+    render(conn, :signup,
+      first?: Accounts.count_users() == 0,
+      claim: params["claim"] |> to_string() |> String.trim()
+    )
   end
 
   def new_session(conn, _params) do
@@ -31,18 +34,23 @@ defmodule PinhaWeb.AuthController do
   @doc """
   Hands out a registration challenge.
 
-  The same endpoint serves a first sign-up and an operator-authorized
-  recovery, because both end in the same ceremony: the difference is only
-  whether the user already exists.
+  The same endpoint serves a claim, an invite, and an operator-authorized
+  recovery, because all three end in the same ceremony: what differs is the
+  token that admitted it, which is remembered here and spent when the
+  credential lands.
   """
-  def signup_challenge(conn, %{"email" => email, "label" => label}) do
-    case registration_mode(email) do
-      {:new, email} ->
+  def signup_challenge(conn, %{"email" => email, "label" => label} = params) do
+    case registration_mode(email, params) do
+      {:new, email, authorization} ->
         handle = :crypto.strong_rand_bytes(32)
         {options, challenge} = WebAuthn.registration(handle, email)
 
         conn
-        |> remember(challenge, email: email, label: label(label), handle: handle, mode: "new")
+        |> remember(
+          challenge,
+          [email: email, label: label(label), handle: handle, mode: "new"] ++
+            List.wrap(authorization)
+        )
         |> json(%{publicKey: options})
 
       {:recovery, user} ->
@@ -74,12 +82,21 @@ defmodule PinhaWeb.AuthController do
     handle = get_session(conn, "handle")
     attrs = Map.put(attrs, :label, get_session(conn, "label"))
 
-    case Accounts.register_user(%{email: email, handle: handle}, attrs) do
-      {:ok, %{user: user}} ->
-        conn |> log_in_user(user) |> json(%{redirect: "/"})
+    case authorization(conn) do
+      {:claim, token} ->
+        # Spending the claim before the insert is what stops two holders of
+        # one token from both registering. A ceremony that fails after this
+        # needs a fresh token from the console, which is the cheap direction
+        # for the mistake to fall in.
+        if Registration.consume_claim(token),
+          do: register(conn, %{email: email, handle: handle, admin: true}, attrs, []),
+          else: fail(conn, 403, "that claim token has been spent")
 
-      {:error, _step, changeset} ->
-        fail(conn, 422, errors(changeset))
+      {:invite, invite} ->
+        register(conn, %{email: email, handle: handle}, attrs, invite: invite)
+
+      :error ->
+        fail(conn, 403, "that registration is no longer authorized")
     end
   end
 
@@ -87,7 +104,7 @@ defmodule PinhaWeb.AuthController do
     email = get_session(conn, "email")
 
     with {:ok, user} <- Accounts.fetch_user_by_email(email),
-         true <- Recovery.consume(email),
+         true <- Registration.consume(email),
          {:ok, _credential} <-
            Accounts.add_credential(user, Map.put(attrs, :label, get_session(conn, "label"))) do
       conn |> log_in_user(user) |> json(%{redirect: "/"})
@@ -99,6 +116,19 @@ defmodule PinhaWeb.AuthController do
   end
 
   defp complete_signup(conn, _mode, _attrs), do: fail(conn, 403, "no registration in progress")
+
+  defp register(conn, user_attrs, credential_attrs, opts) do
+    case Accounts.register_user(user_attrs, credential_attrs, opts) do
+      {:ok, %{user: user}} ->
+        conn |> log_in_user(user) |> json(%{redirect: "/"})
+
+      {:error, :invite, :invite_spent} ->
+        fail(conn, 403, "that invite has already been used")
+
+      {:error, _step, changeset} ->
+        fail(conn, 422, errors(changeset))
+    end
+  end
 
   def signin_challenge(conn, _params) do
     {options, challenge} = WebAuthn.authentication()
@@ -149,21 +179,57 @@ defmodule PinhaWeb.AuthController do
     end
   end
 
-  defp registration_mode(email) do
+  # A registration is admitted by a token and nothing else: the claim token on
+  # a server nobody has claimed, an invite on one that has users, and a
+  # recovery window for an address that already has an account.
+  defp registration_mode(email, params) do
     email = email |> to_string() |> String.trim() |> String.downcase()
 
     case Accounts.fetch_user_by_email(email) do
       {:ok, user} ->
-        if Recovery.authorized?(email),
+        if Registration.authorized?(email),
           do: {:recovery, user},
           else: {:error, "sign-up is not available for that address"}
 
       :error ->
-        if Accounts.signup_open?(),
-          do: {:new, email},
-          else: {:error, "sign-up is closed on this server"}
+        admit(email, params)
     end
   end
+
+  defp admit(email, params) do
+    if Accounts.count_users() == 0 do
+      token = field(params, "claim")
+
+      if Registration.claim?(token),
+        do: {:new, email, {:claim, token}},
+        else: {:error, "no one has claimed this server yet; paste the claim token from its log"}
+    else
+      case Accounts.fetch_usable_invite(field(params, "invite")) do
+        {:ok, invite} -> {:new, email, {:invite, invite.id}}
+        :error -> {:error, "that invite is spent, expired, or was never minted"}
+      end
+    end
+  end
+
+  # The session carries the row id rather than the invite itself, so the
+  # invite is read again, and spent, against the database it lives in.
+  defp authorization(conn) do
+    case {get_session(conn, "claim"), get_session(conn, "invite")} do
+      {token, _} when is_binary(token) ->
+        {:claim, token}
+
+      {_, id} when is_integer(id) ->
+        case Accounts.fetch_usable_invite_by_id(id) do
+          {:ok, invite} -> {:invite, invite}
+          :error -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp field(params, key), do: params |> Map.get(key, "") |> to_string() |> String.trim()
 
   defp label(label) do
     case label |> to_string() |> String.trim() do

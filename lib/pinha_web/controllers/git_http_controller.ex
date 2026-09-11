@@ -5,6 +5,10 @@ defmodule PinhaWeb.GitHttpController do
   `jj git clone`, `jj git fetch`, and `jj git push` use these same endpoints:
   the server only ever moves packs and refs, and never rewrites the commits a
   client sends, so `change-id` trailers survive a round trip untouched.
+
+  Reading is open to every authenticated user. Pushing asks
+  `Pinha.Repos.writable_by?/2` first, and the refusal comes before git starts,
+  both here and on the advertisement a push reads before it sends anything.
   """
 
   use PinhaWeb, :controller
@@ -25,7 +29,8 @@ defmodule PinhaWeb.GitHttpController do
     service = params["service"]
 
     with {:ok, repo} <- Repos.fetch(name),
-         true <- Transport.service?(service) do
+         true <- Transport.service?(service),
+         :ok <- authorize(conn, repo, service) do
       conn = put_private(conn, :pinha_git_service, Transport.subcommand(service))
 
       case Transport.advertise(repo.dir, service, env: protocol_env(conn)) do
@@ -41,6 +46,7 @@ defmodule PinhaWeb.GitHttpController do
       end
     else
       false -> send_resp(conn, 403, "only the smart HTTP protocol is supported\n")
+      {:error, :forbidden} -> send_resp(conn, 403, forbidden_message(name))
       {:error, :invalid_name} -> send_resp(conn, 400, "invalid repository name\n")
       {:error, :invalid_repo} -> send_resp(conn, 500, "not a valid bare repository\n")
       {:error, :not_found} -> send_resp(conn, 404, "no such repository\n")
@@ -55,21 +61,10 @@ defmodule PinhaWeb.GitHttpController do
     case Repos.fetch(name) do
       {:ok, repo} ->
         conn = put_private(conn, :pinha_git_service, Transport.subcommand(service))
-        input = tmp_path()
 
-        try do
-          case stash_body(conn, input) do
-            {:ok, conn} ->
-              conn = conn |> record(repo, service, input) |> stream(repo, service, input)
-              if service == "git-receive-pack", do: Maintenance.after_receive(repo)
-              conn
-
-            {:error, reason} ->
-              Logger.error("reading #{service} body failed: #{inspect(reason)}")
-              send_resp(conn, 400, "could not read request body\n")
-          end
-        after
-          File.rm(input)
+        case authorize(conn, repo, service) do
+          :ok -> run(conn, repo, service)
+          {:error, :forbidden} -> send_resp(conn, 403, forbidden_message(name))
         end
 
       {:error, :invalid_name} ->
@@ -80,6 +75,39 @@ defmodule PinhaWeb.GitHttpController do
 
       {:error, :not_found} ->
         send_resp(conn, 404, "no such repository\n")
+    end
+  end
+
+  # Reading is open to anyone who authenticated; writing is the repo's owner
+  # and admins, decided by the same function the SSH transport calls.
+  defp authorize(_conn, _repo, "git-upload-pack"), do: :ok
+
+  defp authorize(conn, repo, "git-receive-pack") do
+    if Repos.writable_by?(repo, conn.assigns[:current_user]) do
+      :ok
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp forbidden_message(name), do: "you do not have push access to #{name}\n"
+
+  defp run(conn, repo, service) do
+    input = tmp_path()
+
+    try do
+      case stash_body(conn, input) do
+        {:ok, conn} ->
+          conn = conn |> record(repo, service, input) |> stream(repo, service, input)
+          if service == "git-receive-pack", do: Maintenance.after_receive(repo)
+          conn
+
+        {:error, reason} ->
+          Logger.error("reading #{service} body failed: #{inspect(reason)}")
+          send_resp(conn, 400, "could not read request body\n")
+      end
+    after
+      File.rm(input)
     end
   end
 
@@ -114,7 +142,7 @@ defmodule PinhaWeb.GitHttpController do
   # Counts the request and, for a push, remembers the ref updates it asks for
   # so the widelog line and the metrics can carry them.
   defp record(conn, repo, "git-upload-pack", _input) do
-    Metrics.inc("git_fetches_total", [{"repo", repo.name}])
+    Metrics.inc("git_fetches_total", [{"repo", repo.name}, {"transport", "http"}])
     conn
   end
 
@@ -125,7 +153,7 @@ defmodule PinhaWeb.GitHttpController do
         _ -> []
       end
 
-    Metrics.inc("git_pushes_total", [{"repo", repo.name}])
+    Metrics.inc("git_pushes_total", [{"repo", repo.name}, {"transport", "http"}])
     Metrics.inc("git_ref_updates_total", [{"repo", repo.name}], length(commands))
     put_private(conn, :pinha_refs, commands)
   end

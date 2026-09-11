@@ -9,10 +9,11 @@ defmodule Pinha.Application do
 
     children = [
       Pinha.Repo,
-      Pinha.Accounts.Recovery,
+      Pinha.Accounts.Registration,
       Pinha.Metrics,
       {Task.Supervisor, name: Pinha.TaskSupervisor},
       Pinha.Repos.Creator,
+      Pinha.Ssh,
       Pinha.DiskUsage,
       Pinha.Maintenance,
       PinhaWeb.Telemetry,

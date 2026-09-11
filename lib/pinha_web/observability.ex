@@ -8,8 +8,8 @@ defmodule PinhaWeb.Observability do
   `:log_max_refs` refs.
   """
 
-  alias Pinha.Config
   alias Pinha.Metrics
+  alias Pinha.Widelog
 
   @doc false
   defmacro __before_compile__(_env) do
@@ -44,7 +44,7 @@ defmodule PinhaWeb.Observability do
     Metrics.inc("http_requests_total", [{"route", route}, {"status", to_string(status)}])
     Metrics.observe("http_request_duration_ms", duration_ms)
 
-    if Config.widelog?(), do: IO.puts(Jason.encode_to_iodata!(line(conn, route, duration_ms)))
+    Widelog.write(line(conn, route, duration_ms))
 
     conn
   end
@@ -54,6 +54,7 @@ defmodule PinhaWeb.Observability do
   def line(conn, route, duration_ms) do
     %{
       ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+      transport: "http",
       method: conn.method,
       path: "/" <> Enum.join(conn.path_info, "/"),
       route: route,
@@ -70,21 +71,7 @@ defmodule PinhaWeb.Observability do
     |> put_refs(conn)
   end
 
-  defp put_refs(line, conn) do
-    case conn.private[:pinha_refs] do
-      nil ->
-        line
-
-      refs ->
-        max = Config.log_max_refs()
-        shown = Enum.take(refs, max)
-
-        line
-        |> Map.put(:refs, Enum.map(shown, &%{ref: &1.ref, old: &1.old, new: &1.new}))
-        |> Map.put(:refs_total, length(refs))
-        |> Map.put(:refs_truncated, max(length(refs) - length(shown), 0))
-    end
-  end
+  defp put_refs(line, conn), do: Widelog.put_refs(line, conn.private[:pinha_refs])
 
   @doc "The matched route pattern, or `unmatched` when nothing matched."
   @spec route(Plug.Conn.t()) :: String.t()

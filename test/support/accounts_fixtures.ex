@@ -10,17 +10,28 @@ defmodule Pinha.AccountsFixtures do
   alias Pinha.Accounts
   alias Pinha.Accounts.Credential
 
-  @doc "A user holding one passkey."
+  @doc "A user holding one passkey. Pass `admin: true` for one who mints invites."
   def user_fixture(attrs \\ %{}) do
     email = Map.get(attrs, :email, "tester#{System.unique_integer([:positive])}@example.com")
 
     {:ok, %{user: user}} =
       Accounts.register_user(
-        %{email: email, handle: :crypto.strong_rand_bytes(32)},
-        credential_attrs(Map.get(attrs, :label, "test key"))
+        %{
+          email: email,
+          handle: :crypto.strong_rand_bytes(32),
+          admin: Map.get(attrs, :admin, false)
+        },
+        credential_attrs(Map.get(attrs, :label, "test key")),
+        Map.get(attrs, :opts, [])
       )
 
     user
+  end
+
+  @doc "An invite minted by `admin`, returned in the clear as it is pasted."
+  def invite_fixture(admin, label \\ "test invite") do
+    {:ok, secret, _invite} = Accounts.create_invite(admin, label)
+    secret
   end
 
   @doc "Another passkey on an existing user."
@@ -35,7 +46,8 @@ defmodule Pinha.AccountsFixtures do
     secret
   end
 
-  defp credential_attrs(label) do
+  @doc "The attributes a ceremony would have produced for one passkey."
+  def credential_attrs(label \\ "test key") do
     %{
       credential_id: :crypto.strong_rand_bytes(32),
       public_key: Credential.encode_key(%{1 => 2, 3 => -7}),

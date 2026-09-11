@@ -1,8 +1,8 @@
 import Config
 
 # Executed for all environments, including releases, after compilation and
-# before the system starts. The three operator knobs are the repo root, the
-# listen address, and the public base URL.
+# before the system starts. The operator knobs are the repo root, the listen
+# address, the public base URL, and the SSH listener.
 
 if System.get_env("PHX_SERVER") do
   config :pinha, PinhaWeb.Endpoint, server: true
@@ -12,12 +12,24 @@ if repo_root = System.get_env("PINHA_REPO_ROOT") do
   config :pinha, repo_root: Path.expand(repo_root)
 end
 
-if System.get_env("PINHA_SIGNUP_OPEN") in ~w(1 true yes) do
-  config :pinha, signup_open: true
-end
-
 if base_url = System.get_env("PINHA_BASE_URL") do
   config :pinha, base_url: String.trim_trailing(base_url, "/")
+end
+
+if ssh_port = System.get_env("PINHA_SSH_PORT") do
+  config :pinha, ssh_port: String.to_integer(ssh_port)
+end
+
+if ssh_host = System.get_env("PINHA_SSH_HOST") do
+  config :pinha, ssh_host: ssh_host
+end
+
+if ssh_host_key_dir = System.get_env("PINHA_SSH_HOST_KEY_DIR") do
+  config :pinha, ssh_host_key_dir: Path.expand(ssh_host_key_dir)
+end
+
+if ssh_enabled = System.get_env("PINHA_SSH_ENABLED") do
+  config :pinha, ssh_enabled: ssh_enabled not in ["0", "false", "no"]
 end
 
 listen_ip =
@@ -31,6 +43,9 @@ listen_ip =
         {:error, _} -> raise "PINHA_LISTEN_ADDRESS is not a valid IP address: #{address}"
       end
   end
+
+# The SSH listener binds the same address as HTTP when one is named.
+if listen_ip, do: config(:pinha, ssh_listen_ip: listen_ip)
 
 # The test endpoint keeps the port from config/test.exs so a running dev
 # server never collides with the suite.
@@ -46,10 +61,6 @@ if config_env() != :test do
   config :pinha, PinhaWeb.Endpoint, http: http_options
 end
 
-# Every environment reaches the same Neon project, so the connection rules
-# live here once rather than in three config files. `mix test` reads
-# TEST_DATABASE_URL so a run cannot touch the database being developed
-# against.
 database_url =
   if config_env() == :test do
     System.get_env("TEST_DATABASE_URL")

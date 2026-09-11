@@ -137,6 +137,44 @@ defmodule PinhaWeb.GitHttpControllerTest do
     assert response_content_type(conn, :"x-git-upload-pack-result")
   end
 
+  describe "push access" do
+    test "an ordinary user reads a repository they do not own, and cannot push", %{user: admin} do
+      seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
+      {:ok, _} = Repos.set_owner("demo", admin.email)
+
+      ordinary = user_fixture()
+      url = authenticated_url(ordinary, "/demo.git")
+      work = tmp_dir!()
+      clone = Path.join(work, "one")
+
+      git!(work, ["clone", "--quiet", url, clone])
+
+      File.write!(Path.join(clone, "b.txt"), "b\n")
+      git!(clone, ["add", "-A"])
+      git!(clone, ["commit", "--quiet", "-m", "second"])
+
+      {output, status} =
+        System.cmd("git", ["push", "origin", "main"], cd: clone, stderr_to_stdout: true)
+
+      assert status != 0
+      assert output =~ "you do not have push access to demo"
+    end
+
+    test "the owner pushes", %{user: admin} do
+      create_repo!("demo", admin)
+      url = authenticated_url(admin, "/demo.git")
+      work = tmp_dir!()
+      clone = Path.join(work, "one")
+
+      git!(work, ["clone", "--quiet", url, clone])
+      File.write!(Path.join(clone, "a.txt"), "a\n")
+      git!(clone, ["add", "-A"])
+      git!(clone, ["commit", "--quiet", "-m", "first"])
+
+      assert git!(clone, ["push", "--quiet", "origin", "main"])
+    end
+  end
+
   test "transport metrics count fetches, pushes, and ref updates", %{url: url} do
     create_repo!("demo")
     work = tmp_dir!()
@@ -149,8 +187,8 @@ defmodule PinhaWeb.GitHttpControllerTest do
     git!(work, ["clone", "--quiet", url, Path.join(work, "two")])
 
     metrics = IO.iodata_to_binary(Metrics.render())
-    assert metrics =~ ~r/git_pushes_total\{repo="demo"\} [1-9]/
+    assert metrics =~ ~r/git_pushes_total\{repo="demo",transport="http"\} [1-9]/
     assert metrics =~ ~r/git_ref_updates_total\{repo="demo"\} [1-9]/
-    assert metrics =~ ~r/git_fetches_total\{repo="demo"\} [1-9]/
+    assert metrics =~ ~r/git_fetches_total\{repo="demo",transport="http"\} [1-9]/
   end
 end

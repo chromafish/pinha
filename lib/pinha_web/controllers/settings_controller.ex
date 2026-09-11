@@ -1,18 +1,64 @@
 defmodule PinhaWeb.SettingsController do
   @moduledoc """
-  The signed-in user's passkeys and API tokens.
+  The signed-in user's passkeys, API tokens, and SSH keys, and an admin's
+  invites.
 
-  A token is readable exactly once, on the page that mints it, so creation
-  renders rather than redirects.
+  A secret is readable exactly once, on the page that mints it, so creation
+  renders rather than redirects. A public key is not a secret and is stored as
+  pasted, so adding one redirects like any other form.
   """
 
   use PinhaWeb, :controller
+
+  plug :require_admin when action in [:create_invite, :delete_invite]
 
   alias Pinha.Accounts
   alias Pinha.Accounts.WebAuthn
 
   def show(conn, _params) do
     render_settings(conn, nil)
+  end
+
+  def create_invite(conn, params) do
+    case Accounts.create_invite(conn.assigns.current_user, label(params["label"], "invite")) do
+      {:ok, secret, _invite} -> render_settings(conn, nil, secret)
+      {:error, _changeset} -> fail(conn, 422, "could not mint that invite")
+    end
+  end
+
+  def delete_invite(conn, %{"id" => id}) do
+    case Accounts.delete_invite(String.to_integer(id)) do
+      :ok -> redirect(conn, to: "/settings")
+      {:error, :not_found} -> fail(conn, 404, "no such invite")
+    end
+  end
+
+  def create_ssh_key(conn, params) do
+    user = conn.assigns.current_user
+
+    case Accounts.add_ssh_key(user, to_string(params["key"]), params["label"]) do
+      {:ok, _key} ->
+        redirect(conn, to: "/settings")
+
+      {:error, :unreadable} ->
+        fail(conn, 422, "that does not look like an SSH public key")
+
+      {:error, :unsupported_algorithm} ->
+        fail(conn, 422, "that key type is not accepted; use Ed25519, ECDSA, or RSA")
+
+      {:error, :weak_key} ->
+        fail(conn, 422, "an RSA key must be at least 2048 bits")
+
+      {:error, :already_registered} ->
+        fail(conn, 409, "that key is already registered")
+    end
+  end
+
+  def delete_ssh_key(conn, %{"id" => id}) do
+    case Accounts.delete_ssh_key(conn.assigns.current_user, String.to_integer(id)) do
+      :ok -> redirect(conn, to: "/settings")
+      {:error, :not_found} -> fail(conn, 404, "no such key")
+    end
   end
 
   def create_token(conn, params) do
@@ -70,19 +116,33 @@ defmodule PinhaWeb.SettingsController do
     end
   end
 
-  defp render_settings(conn, new_token) do
+  defp render_settings(conn, new_token, new_invite \\ nil) do
     user = conn.assigns.current_user
 
     render(conn, :show,
       credentials: Accounts.list_credentials(user),
       tokens: Accounts.list_api_tokens(user),
-      new_token: new_token
+      ssh_keys: Accounts.list_ssh_keys(user),
+      ssh_clone_example: PinhaWeb.Helpers.ssh_clone_url("repo"),
+      invites: if(user.admin, do: Accounts.list_invites(), else: []),
+      new_token: new_token,
+      new_invite: new_invite
     )
   end
 
-  defp label(label) do
+  # Minting an invite is the one thing an ordinary user cannot do, so it is
+  # the one thing this page checks.
+  defp require_admin(conn, _opts) do
+    if conn.assigns.current_user.admin do
+      conn
+    else
+      conn |> fail(403, "only an admin mints invites") |> halt()
+    end
+  end
+
+  defp label(label, default \\ "token") do
     case label |> to_string() |> String.trim() do
-      "" -> "token"
+      "" -> default
       text -> String.slice(text, 0, 80)
     end
   end

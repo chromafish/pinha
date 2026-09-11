@@ -1,5 +1,5 @@
 = Git hosting
-:revdate: 2026-09-10
+:revdate: 2026-09-11
 :status: Draft
 :toc:
 :sectnums:
@@ -10,14 +10,14 @@ Git hosting. Minimal single-node service that hosts bare git repositories from a
 
 == Scope
 
-* Host repositories: create and delete repos over the web and directly on disk, browse branches, commit history, files at any revision, and diffs with Jujutsu change-ID resolution, and serve raw blobs and smart-HTTP clone/fetch/push.
-* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and Prometheus `GET /metrics`, filesystem backup via copy/snapshot, no quota or auth in v0.1.
+* Host repositories: create and delete repos over the web and directly on disk, browse branches, commit history, files at any revision, and diffs with Jujutsu change-ID resolution, and serve raw blobs and clone/fetch/push over smart HTTP and SSH, with every user reading every repo and only its owner writing.
+* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and Prometheus `GET /metrics`, filesystem backup via copy/snapshot, no quota in v0.1.
 
 == Abstractions
 
 === Repository
 
-A bare git repository on disk at `$ROOT/<name>.git` with standard layout (`HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, `description`). No nesting (`group/foo.git` not supported), single OS owner, no per-repo permissions. `HEAD` defines the default branch, `description` feeds the list, `config` is default bare plus `http.receivepack true`. Validated per request; no metadata store or index.
+A bare git repository on disk at `$ROOT/<name>.git` with standard layout (`HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, `description`). No nesting (`group/foo.git` not supported) and one OS user owning the whole root. A repo also has an owner, a user recorded in its `config` as `pinha.owner` by the opaque `uid` that link:0002.pinha.authentication.adoc[Authentication] mints: every user reads every repo, and only the owner and admins write. `HEAD` defines the default branch, `description` feeds the list, `config` is default bare plus `http.receivepack true` and `pinha.owner`. Validated per request; no metadata store or index.
 
 === Revision
 
@@ -29,17 +29,17 @@ Git commit with metadata, parents, full diff, and preserved trailers including `
 
 === Surface
 
-HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), and operating surface (repo root / listen address / base URL config, JSON widelogs, Prometheus metrics, background maintenance).
+HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key config, JSON widelogs, Prometheus metrics, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
 
 == Mechanics
 
 === Repositories
 
-The operator sets a repo root directory, e.g. `/srv/pinha`. Layout per repo is the standard bare one (`HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, `description`), with no nesting in v0.1 (`$ROOT/foo.git`, never `$ROOT/group/foo.git`). A single OS user owns the root and all repos, with no per-repo permissions. `HEAD` sets the default branch, and `description` feeds the repo list (missing means name only). Repo `config` stays default bare plus `http.receivepack true`, with no hooks and no alternates in v0.1. Backup and restore are filesystem copies (`rsync`, volume snapshot) with no export format, and there is no quota: a full disk fails the push.
+The operator sets a repo root directory, e.g. `/srv/pinha`. Layout per repo is the standard bare one (`HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, `description`), with no nesting in v0.1 (`$ROOT/foo.git`, never `$ROOT/group/foo.git`). A single OS user owns the root and every repo on disk, and who may write each one is decided by the rule in Access below. `HEAD` sets the default branch, and `description` feeds the repo list (missing means name only). Repo `config` stays default bare plus `http.receivepack true` and `pinha.owner`, with no hooks and no alternates in v0.1. Backup and restore are filesystem copies (`rsync`, volume snapshot) with no export format, and there is no quota: a full disk fails the push.
 
 ==== Create
 
-Create is `POST /repos` with a `name`. The server initializes the repo in a temporary directory and atomically renames it to `<name>.git`, so a half-created repo is never listed. Concurrent creates for the same name serialize and the loser gets 409. Doing `mkdir` plus `git init --bare` by hand is equivalent.
+Create is `POST /repos` with a `name`, open to any authenticated user, who owns what they create. The server initializes the repo in a temporary directory, writes the creating user's `uid` to `pinha.owner`, and atomically renames the directory to `<name>.git`, so a repo is never listed half-created or unowned. Concurrent creates for the same name serialize and the loser gets 409. Doing `mkdir` plus `git init --bare` by hand is equivalent.
 
 ==== Read
 
@@ -47,11 +47,21 @@ The listing includes every child directory ending in `.git` that is a valid bare
 
 ==== Delete
 
-Delete is `DELETE /:repo`. The server first renames `<name>.git` out of the listing, so new requests stop resolving it while in-flight ones drain, then removes the renamed directory asynchronously. Rename is delete plus create in v0.1, and update is push.
+Delete is `DELETE /:repo`, allowed to the owner and to admins. The server first renames `<name>.git` out of the listing, so new requests stop resolving it while in-flight ones drain, then removes the renamed directory asynchronously. Rename is delete plus create in v0.1, and update is push.
+
+=== Access
+
+Every authenticated user reads every repository: the listing, the browse routes, raw blobs, `info/refs`, and `upload-pack` ask for nothing beyond a session, a token, or a key. Writing is narrower. `receive-pack` and `DELETE /:repo` require the repo's owner or an admin, and the refusal is a `403` over HTTP and a message on stderr with a non-zero exit over SSH; the git process never starts in either case, so nothing reaches the repo on disk.
+
+Ownership lives in the repo's own `config` as `pinha.owner`, holding the owner's `uid`. Storing it in git keeps a repo restored from a filesystem copy carrying its owner, and the `uid` is stable under everything a user can change about themselves, so renaming an email or replacing a passkey leaves every repo owned by the same person. Rendering an owner costs one lookup by `uid`, batched into a single query for the repo list. Setting one is `Pinha.Repos.set_owner/2` from the release console or an owner picker on the repo page, both of which take an email and write the `uid`; the page also shows the `uid` for anyone editing `config` by hand.
+
+A repo with no `pinha.owner` — one created by hand with `git init --bare`, or one whose owner was deleted — stays readable by everyone and writable only by admins, who assign an owner from the repo page. A `pinha.owner` naming a `uid` that no longer exists is treated the same way, since a deleted user takes nothing on disk with them.
+
+One function decides, and both transports call it before any git process starts: the HTTP controller once Basic auth resolves a user, the SSH channel once the key does. Ownership is the only dimension in v0.1, with no teams, no collaborators, and no private repos, so every account sees every line of every repo.
 
 === Browsing
 
-The UI serves a repo list with name, default-branch head, and `description` contents when present, plus per-repo summary pages with default branch, branch list, and recent commits. Routes:
+The UI serves a repo list with name, default-branch head, and `description` contents when present, plus per-repo summary pages with default branch, owner, clone URLs, branch list, and recent commits. Routes:
 
 * `GET /` — repo list.
 * `GET /:repo` — summary.
@@ -65,17 +75,30 @@ Git is the source of truth. There is no metadata store and no index; each reques
 
 === Clone and push
 
-Transport is smart HTTP only: `GET /:repo/info/refs`, `POST /:repo/git-upload-pack` for clone and fetch, and `POST /:repo/git-receive-pack` for push. The server advertises all branches and tags with no filtering. Push covers `refs/heads/*` and `refs/tags/*` for create, update, delete, and force-push, with no protection and no other namespaces in v0.1. Concurrent pushes to the same ref serialize on git's own locking, so the loser retries. Maintenance runs in supervised background processes, which are cheap in Elixir: a task after each receive runs `git gc --auto`, plus a periodic job handles pruning and repacking without blocking push responses. Pushes preserve commit trailers including `change-id`, the server never rewrites commits, and `jj git push` works unchanged.
+Two transports serve the same repositories and the same refs. Smart HTTP is `GET /:repo/info/refs`, `POST /:repo/git-upload-pack` for clone and fetch, and `POST /:repo/git-receive-pack` for push. SSH is `git@<host>:<name>.git`, which git and `jj` turn into an exec request for `git-upload-pack '<path>'` or `git-receive-pack '<path>'`, and which is the nicer push UX: the key is already in the agent, so nothing prompts. The server advertises all branches and tags with no filtering on either transport. Push covers `refs/heads/*` and `refs/tags/*` for create, update, delete, and force-push, with no protection and no other namespaces in v0.1. Concurrent pushes to the same ref serialize on git's own locking, so the loser retries. Maintenance runs in supervised background processes, which are cheap in Elixir: a task after each receive runs `git gc --auto`, plus a periodic job handles pruning and repacking without blocking push responses. Pushes preserve commit trailers including `change-id`, the server never rewrites commits, and `jj git push` works unchanged over both.
+
+==== SSH
+
+The release runs the Erlang `:ssh` daemon under its own supervisor on a configured port, defaulting to 2222, with no OpenSSH, no OS account per user, and no `authorized_keys` file on disk. Only public-key authentication is offered, so password and keyboard-interactive prompts never appear, and every client connects as the single SSH user `git`, with identity coming from the key. The daemon resolves an offered key to a user by SHA-256 fingerprint during authentication and binds the connection to that user for its lifetime, so the channel that later runs git already knows the pusher. Keys are registered in the UI and belong to users; see link:0002.pinha.authentication.adoc[Authentication].
+
+A session may do one thing: exec `git-upload-pack` or `git-receive-pack` against one repository. The command string is parsed without a shell into exactly two words, the verb checked against that allowlist and the argument against the same `<name>.git` rules an HTTP `:repo` segment gets, with a leading `/` or `~/` stripped so `git@host:foo.git` and `ssh://git@host/foo.git` reach the same repo. `git-upload-archive` is outside the allowlist, and so is every other verb. A shell, a PTY, sftp, port or agent forwarding, or a second exec is refused with a message on stderr and a non-zero exit, so a stolen key buys a git session and no more.
+
+git is spawned from an argv list and never through a shell, so quoting in the command string cannot become execution. Environment requests from the client are dropped except `GIT_PROTOCOL`, whose value must match `version=2`; passing the rest through would let a session set `GIT_ALTERNATE_OBJECT_DIRECTORIES` or a `GIT_CONFIG_*` pair and read objects outside the repository it asked for.
+
+The channel wires client stdin and stdout to `git upload-pack` or `git receive-pack` on the repo directory, speaking the plain bidirectional protocol rather than the stateless-RPC framing HTTP uses. Flow control joins the two halves: the channel reads from the port only as the SSH window opens, so a slow client cannot make the server buffer a whole pack in memory. A client that has finished talking closes its side of the channel, and since a port cannot close one direction of a pipe, the flush packet that ends a protocol v2 session is written to git in place of the end-of-file it is waiting for; without it `upload-pack` sits reading its input after the pack is delivered and the client waits on a process that never exits. The channel closes with git's exit status, and receive-pack triggers the same post-receive maintenance, counters, and widelog line as an HTTP push.
+
+The host key is an Ed25519 pair generated on first boot and written `0600` under a configured directory that defaults to `<repo root>/.pinha/ssh`, which the repo listing skips because it does not end in `.git`. It persists across restarts and deploys, since a regenerated host key fails every client's `known_hosts` check, and its fingerprint is written on stdout at startup so the operator can publish it. Repo pages render the SSH clone URL from a configured host and port alongside the HTTP one.
 
 === Operating
 
-Deployment is a single release plus the repo directory, configured with repo root path, listen address, and public base URL. Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs. Metrics are Prometheus text at `GET /metrics` on the same port with no auth:
+Deployment is a single release plus the repo directory, configured with repo root path, HTTP listen address, public base URL, SSH port, SSH host key directory, and the SSH host advertised in clone URLs. Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, transport (`http` / `ssh`), method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs. An SSH exec emits one line of the same shape, with the repo, the git protocol, the git exit status, and bytes in each direction filling in for method, route, and user agent. Metrics are Prometheus text at `GET /metrics` on the same port with no auth:
 
 * `http_requests_total{route,status}` — request count.
 * `http_request_duration_ms` — request latency.
-* `git_fetches_total{repo}` — fetch count.
-* `git_pushes_total{repo}` — push count.
+* `git_fetches_total{repo,transport}` — fetch count.
+* `git_pushes_total{repo,transport}` — push count.
 * `git_ref_updates_total{repo}` — ref update count.
+* `ssh_auth_failures_total` — rejected public keys.
 * `repos_total` — repo count.
 * `repo_disk_bytes{repo}` — disk usage (cached `du`, refreshed by a background process roughly every 60s).
 

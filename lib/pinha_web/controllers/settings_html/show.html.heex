@@ -1,5 +1,5 @@
 <Layouts.app current_user={assigns[:current_user]} title="settings" up="/">
-  <div class="panes split">
+  <div class={["panes", if(@current_user.admin, do: "quad", else: "triple")]}>
     <section class="pane">
       <header class="pane-head">
         <span>Passkeys</span>
@@ -102,6 +102,126 @@
           </tr>
         </tbody>
       </table>
+    </section>
+
+    <section class="pane">
+      <header class="pane-head">
+        <span>SSH keys</span>
+        <span class="count">{length(@ssh_keys)}</span>
+      </header>
+
+      <p :if={@ssh_keys == []} class="empty">
+        No keys. A key pushes without a prompt, since the agent already holds it.
+      </p>
+
+      <table :if={@ssh_keys != []} class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Fingerprint</th>
+            <th>Last used</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={key <- @ssh_keys} data-row>
+            <td class="wide">{key.label}</td>
+            <td>{key.algorithm}</td>
+            <td><code>{format_fingerprint(key.fingerprint)}</code></td>
+            <td>
+              {if key.last_used_at, do: format_date(to_string(key.last_used_at)), else: "never"}
+            </td>
+            <td class="right">
+              <form
+                method="post"
+                action={"/settings/ssh-keys/#{key.id}"}
+                onsubmit="return confirm('Remove this key? Anything pushing with it stops working.')"
+              >
+                <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+                <input type="hidden" name="_method" value="delete" />
+                <button type="submit" class="danger">Remove</button>
+              </form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <form class="form" method="post" action="/settings/ssh-keys">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <label for="ssh-key">Add a key</label>
+        <textarea
+          id="ssh-key"
+          name="key"
+          rows="3"
+          placeholder="ssh-ed25519 AAAA... you@laptop"
+          required
+        ></textarea>
+        <input type="text" name="label" placeholder="name (optional)" />
+        <button type="submit">Add key</button>
+      </form>
+
+      <p class="muted">
+        Clone over SSH with <code>{@ssh_clone_example}</code>.
+      </p>
+    </section>
+
+    <section :if={@current_user.admin} class="pane">
+      <header class="pane-head">
+        <span>Invites</span>
+        <span class="count">{length(@invites)}</span>
+      </header>
+
+      <div :if={@new_invite} class="note-strong">
+        <p>Copy this now. It is not shown again.</p>
+        <code class="secret">{@new_invite}</code>
+        <p class="muted">
+          Whoever pastes it into the sign-up form gets one account, for a week.
+        </p>
+      </div>
+
+      <p :if={@invites == []} class="empty">
+        No invites. Every account here but the first one arrives on one.
+      </p>
+
+      <table :if={@invites != []} class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Minted</th>
+            <th>Expires</th>
+            <th>Used by</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={invite <- @invites} data-row>
+            <td class="wide">{invite.label}</td>
+            <td>{format_date(to_string(invite.inserted_at))}</td>
+            <td>{format_date(to_string(invite.expires_at))}</td>
+            <td>{if invite.consumed_by, do: invite.consumed_by.email, else: "unused"}</td>
+            <td class="right">
+              <form
+                :if={is_nil(invite.consumed_at)}
+                method="post"
+                action={"/settings/invites/#{invite.id}"}
+                onsubmit="return confirm('Revoke this invite?')"
+              >
+                <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+                <input type="hidden" name="_method" value="delete" />
+                <button type="submit" class="danger">Revoke</button>
+              </form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <form class="form" method="post" action="/settings/invites">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <label for="invite-label">Mint an invite</label>
+        <input type="text" id="invite-label" name="label" placeholder="who it is for" />
+        <button type="submit">Mint invite</button>
+      </form>
     </section>
   </div>
 
