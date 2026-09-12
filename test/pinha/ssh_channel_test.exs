@@ -51,6 +51,24 @@ defmodule Pinha.Ssh.ChannelTest do
     assert capture_io(fn -> Channel.terminate(:normal, state) end) == ""
   end
 
+  test "a second exec on one channel is refused, leaving the first alone" do
+    running = %State{
+      id: 0,
+      cm: self(),
+      started_at: System.monotonic_time(),
+      subcommand: "upload-pack",
+      port: :a_port,
+      stderr_path: "/tmp/first",
+      span: :a_span
+    }
+
+    assert {:ok, ^running} =
+             Channel.handle_ssh_msg(
+               {:ssh_cm, self(), {:exec, 0, false, ~c"git-upload-pack 'other.git'"}},
+               running
+             )
+  end
+
   test "a connection that never ran anything says nothing" do
     assert capture_io(fn -> Channel.terminate(:normal, %State{}) end) == ""
   end

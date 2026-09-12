@@ -89,7 +89,16 @@ defmodule Pinha.Ssh.Channel do
 
   def handle_msg(_msg, state), do: {:ok, state}
 
+  # One exec per channel. OTP forwards a second one to this same process, and
+  # taking it would overwrite the port, the span and the stderr path of the
+  # first, leaking all three.
   @impl true
+  def handle_ssh_msg({:ssh_cm, cm, {:exec, id, want_reply, _command}}, %State{span: span} = state)
+      when not is_nil(span) do
+    :ssh_connection.reply_request(cm, want_reply, :failure, id)
+    {:ok, state}
+  end
+
   def handle_ssh_msg({:ssh_cm, cm, {:exec, id, want_reply, command}}, state) do
     :ssh_connection.reply_request(cm, want_reply, :success, id)
     start(state, to_string(command))
