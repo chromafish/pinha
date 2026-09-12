@@ -14,6 +14,7 @@ defmodule PinhaWeb.SettingsController do
 
   alias Pinha.Accounts
   alias Pinha.Accounts.WebAuthn
+  alias Pinha.Audit
 
   def show(conn, _params) do
     render_settings(conn, nil)
@@ -22,10 +23,17 @@ defmodule PinhaWeb.SettingsController do
   def update_username(conn, params) do
     user = conn.assigns.current_user
     attrs = username_params(params)
+    old_username = user.username
 
     case Accounts.update_username(user, attrs) do
-      {:ok, _user} ->
+      {:ok, updated} ->
         conn
+        |> Audit.put("user.username_updated", user, %{
+          target_id: updated.id,
+          target_uid: updated.uid,
+          old_username: old_username,
+          new_username: updated.username
+        })
         |> put_flash(:info, "Username updated.")
         |> redirect(to: "/settings")
 
@@ -45,16 +53,30 @@ defmodule PinhaWeb.SettingsController do
   end
 
   def create_invite(conn, params) do
-    case Accounts.create_invite(conn.assigns.current_user, label(params["label"], "invite")) do
-      {:ok, secret, _invite} -> render_settings(conn, nil, secret)
-      {:error, _changeset} -> fail(conn, 422, "could not mint that invite")
+    actor = conn.assigns.current_user
+
+    case Accounts.create_invite(actor, label(params["label"], "invite")) do
+      {:ok, secret, invite} ->
+        conn
+        |> Audit.put("invite.created", actor, %{invite_id: invite.id, label: invite.label})
+        |> render_settings(nil, secret)
+
+      {:error, _changeset} ->
+        fail(conn, 422, "could not mint that invite")
     end
   end
 
   def delete_invite(conn, %{"id" => id}) do
-    case Accounts.delete_invite(String.to_integer(id)) do
-      :ok -> redirect(conn, to: "/settings")
-      {:error, :not_found} -> fail(conn, 404, "no such invite")
+    int_id = String.to_integer(id)
+
+    case Accounts.delete_invite(int_id) do
+      :ok ->
+        conn
+        |> Audit.put("invite.deleted", conn.assigns.current_user, %{invite_id: int_id})
+        |> redirect(to: "/settings")
+
+      {:error, :not_found} ->
+        fail(conn, 404, "no such invite")
     end
   end
 
@@ -62,8 +84,13 @@ defmodule PinhaWeb.SettingsController do
     user = conn.assigns.current_user
 
     case Accounts.add_ssh_key(user, to_string(params["key"]), params["label"]) do
-      {:ok, _key} ->
-        redirect(conn, to: "/settings")
+      {:ok, key} ->
+        conn
+        |> Audit.put("ssh_key.created", user, %{
+          ssh_key_id: key.id,
+          fingerprint: key.fingerprint
+        })
+        |> redirect(to: "/settings")
 
       {:error, :unreadable} ->
         fail(conn, 422, "that does not look like an SSH public key")
@@ -80,9 +107,16 @@ defmodule PinhaWeb.SettingsController do
   end
 
   def delete_ssh_key(conn, %{"id" => id}) do
-    case Accounts.delete_ssh_key(conn.assigns.current_user, String.to_integer(id)) do
-      :ok -> redirect(conn, to: "/settings")
-      {:error, :not_found} -> fail(conn, 404, "no such key")
+    int_id = String.to_integer(id)
+
+    case Accounts.delete_ssh_key(conn.assigns.current_user, int_id) do
+      :ok ->
+        conn
+        |> Audit.put("ssh_key.deleted", conn.assigns.current_user, %{ssh_key_id: int_id})
+        |> redirect(to: "/settings")
+
+      {:error, :not_found} ->
+        fail(conn, 404, "no such key")
     end
   end
 
@@ -90,22 +124,38 @@ defmodule PinhaWeb.SettingsController do
     user = conn.assigns.current_user
 
     case Accounts.create_api_token(user, label(params["label"]), expiry(params["expires_in"])) do
-      {:ok, secret, _token} -> render_settings(conn, secret)
-      {:error, _changeset} -> fail(conn, 422, "could not create token")
+      {:ok, secret, token} ->
+        conn
+        |> Audit.put("api_token.created", user, %{api_token_id: token.id, label: token.label})
+        |> render_settings(secret)
+
+      {:error, _changeset} ->
+        fail(conn, 422, "could not create token")
     end
   end
 
   def delete_token(conn, %{"id" => id}) do
-    case Accounts.delete_api_token(conn.assigns.current_user, String.to_integer(id)) do
-      :ok -> redirect(conn, to: "/settings")
-      {:error, :not_found} -> fail(conn, 404, "no such token")
+    int_id = String.to_integer(id)
+
+    case Accounts.delete_api_token(conn.assigns.current_user, int_id) do
+      :ok ->
+        conn
+        |> Audit.put("api_token.deleted", conn.assigns.current_user, %{api_token_id: int_id})
+        |> redirect(to: "/settings")
+
+      {:error, :not_found} ->
+        fail(conn, 404, "no such token")
     end
   end
 
   def delete_credential(conn, %{"id" => id}) do
-    case Accounts.delete_credential(conn.assigns.current_user, String.to_integer(id)) do
+    int_id = String.to_integer(id)
+
+    case Accounts.delete_credential(conn.assigns.current_user, int_id) do
       :ok ->
-        redirect(conn, to: "/settings")
+        conn
+        |> Audit.put("credential.deleted", conn.assigns.current_user, %{credential_id: int_id})
+        |> redirect(to: "/settings")
 
       {:error, :last_credential} ->
         fail(conn, 409, "this is the only passkey on the account; register another first")
@@ -131,9 +181,13 @@ defmodule PinhaWeb.SettingsController do
 
     with challenge when not is_nil(challenge) <- get_session(conn, "challenge"),
          {:ok, attrs} <- WebAuthn.verify_registration(params, challenge),
-         {:ok, _credential} <-
+         {:ok, credential} <-
            Accounts.add_credential(user, Map.put(attrs, :label, get_session(conn, "label"))) do
       conn
+      |> Audit.put("credential.created", user, %{
+        credential_id: credential.id,
+        label: credential.label
+      })
       |> delete_session("challenge")
       |> json(%{redirect: "/settings"})
     else

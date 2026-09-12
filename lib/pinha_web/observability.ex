@@ -36,15 +36,37 @@ defmodule PinhaWeb.Observability do
   @doc "Writes the widelog line for a finished request, and finishes its span."
   @spec finish(Plug.Conn.t(), integer()) :: Plug.Conn.t()
   def finish(conn, start_time) do
-    duration_ms =
-      System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond) / 1000
+    if asset_request?(conn) do
+      conn
+    else
+      duration_ms =
+        System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond) /
+          1000
 
-    route = route(conn)
-    annotate(conn, route)
-    Widelog.write(line(conn, route, duration_ms))
+      route = route(conn)
+      annotate(conn, route)
+      Widelog.write(line(conn, route, duration_ms))
 
-    conn
+      conn
+    end
   end
+
+  defp asset_request?(%Plug.Conn{path_info: [first | _]}) when first in ~w(assets fonts images) do
+    true
+  end
+
+  defp asset_request?(%Plug.Conn{path_info: ["favicon.ico"]}), do: true
+  defp asset_request?(%Plug.Conn{path_info: ["robots.txt"]}), do: true
+
+  defp asset_request?(%Plug.Conn{path_info: ["phoenix", "live_reload" | _]}), do: true
+
+  defp asset_request?(%Plug.Conn{request_path: path}) when is_binary(path) do
+    String.starts_with?(path, "/assets/") or
+      path in ["/favicon.ico", "/robots.txt"] or
+      String.starts_with?(path, "/phoenix/live_reload/")
+  end
+
+  defp asset_request?(_), do: false
 
   @doc """
   Puts the repo and the user on the request's span, and names an unmatched
@@ -54,11 +76,21 @@ defmodule PinhaWeb.Observability do
   def annotate(conn, route) do
     if route == "unmatched", do: Tracer.update_name("#{conn.method} unmatched")
 
+    base = [
+      {"repo", repo_name(conn)},
+      {"user", conn.assigns[:current_user] && conn.assigns.current_user.id}
+    ]
+
+    audit_attrs =
+      case conn.private[:pinha_audit] do
+        nil -> []
+        [] -> []
+        [single] -> Enum.map(single, fn {k, v} -> {to_string(k), v} end)
+        many when is_list(many) -> [{"audits", inspect(many)}]
+      end
+
     Tracer.set_attributes(
-      [
-        {"repo", repo_name(conn)},
-        {"user", conn.assigns[:current_user] && conn.assigns.current_user.id}
-      ]
+      (base ++ audit_attrs)
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     )
 
@@ -87,6 +119,16 @@ defmodule PinhaWeb.Observability do
     }
     |> put_refs(conn)
     |> put_git_failure(conn)
+    |> put_audit(conn)
+  end
+
+  defp put_audit(line, conn) do
+    case conn.private[:pinha_audit] do
+      nil -> line
+      [] -> line
+      [single] -> Map.merge(line, single)
+      many when is_list(many) -> Map.put(line, :audits, many)
+    end
   end
 
   # A git process that exited non-zero says why on its stderr; that belongs on

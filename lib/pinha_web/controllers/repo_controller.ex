@@ -10,6 +10,7 @@ defmodule PinhaWeb.RepoController do
   use PinhaWeb, :controller
 
   alias Pinha.Accounts
+  alias Pinha.Audit
   alias Pinha.Git
   alias Pinha.Repos
 
@@ -25,6 +26,8 @@ defmodule PinhaWeb.RepoController do
   def create(conn, params) do
     case Repos.create(params["name"] || "", conn.assigns.current_user) do
       {:ok, repo} ->
+        conn = Audit.put(conn, "repo.created", conn.assigns.current_user, %{repo: repo.name})
+
         case get_format(conn) do
           "json" ->
             conn
@@ -83,8 +86,18 @@ defmodule PinhaWeb.RepoController do
 
     with {:ok, repo} <- Repos.fetch(name),
          true <- Repos.writable_by?(repo, conn.assigns.current_user),
-         {:ok, _repo} <- Repos.set_owner(name, to_string(username)) do
-      redirect(conn, to: PinhaWeb.Helpers.repo_path(repo.name))
+         {:ok, new_repo} <- Repos.set_owner(name, to_string(username)) do
+      {:ok, target} = Accounts.fetch_user_by_username(to_string(username))
+
+      conn
+      |> Audit.put("repo.owner_changed", conn.assigns.current_user, %{
+        repo: repo.name,
+        old_owner_uid: repo.owner_uid,
+        new_owner_id: target.id,
+        new_owner_uid: target.uid,
+        new_owner_username: target.username
+      })
+      |> redirect(to: PinhaWeb.Helpers.repo_path(new_repo.name))
     else
       false -> fail(conn, 403, "only the owner or an admin hands over a repository")
       {:error, :no_such_user} -> fail(conn, 404, "no user with that username")
@@ -117,6 +130,8 @@ defmodule PinhaWeb.RepoController do
   defp destroy(conn, name) do
     case Repos.delete(name) do
       :ok ->
+        conn = Audit.put(conn, "repo.deleted", conn.assigns.current_user, %{repo: name})
+
         case get_format(conn) do
           "json" -> send_resp(conn, 204, "")
           _ -> redirect(conn, to: "/")

@@ -18,6 +18,7 @@ defmodule PinhaWeb.AuthController do
   alias Pinha.Accounts.Registration
   alias Pinha.Accounts.User
   alias Pinha.Accounts.WebAuthn
+  alias Pinha.Audit
 
   plug :redirect_if_signed_in when action in [:new_signup, :new_session]
 
@@ -136,9 +137,16 @@ defmodule PinhaWeb.AuthController do
 
     with {:ok, user} <- Accounts.fetch_user_by_email(email),
          true <- Registration.consume(email),
-         {:ok, _credential} <-
+         {:ok, credential} <-
            Accounts.add_credential(user, Map.put(attrs, :label, get_session(conn, "label"))) do
-      conn |> log_in_user(user) |> json(%{redirect: "/"})
+      conn
+      |> Audit.put("credential.created", user, %{
+        credential_id: credential.id,
+        label: credential.label
+      })
+      |> Audit.put("session.created", user, Audit.target_fields(user))
+      |> log_in_user(user)
+      |> json(%{redirect: "/"})
     else
       false -> fail(conn, 403, "recovery window has closed")
       :error -> fail(conn, 403, "no such user")
@@ -150,8 +158,23 @@ defmodule PinhaWeb.AuthController do
 
   defp register(conn, user_attrs, credential_attrs, opts) do
     case Accounts.register_user(user_attrs, credential_attrs, opts) do
+      {:ok, %{user: user, credential: credential}} ->
+        conn
+        |> Audit.put(
+          "user.created",
+          user,
+          Audit.target_fields(user, %{credential_id: credential.id})
+        )
+        |> Audit.put("session.created", user, Audit.target_fields(user))
+        |> log_in_user(user)
+        |> json(%{redirect: "/"})
+
       {:ok, %{user: user}} ->
-        conn |> log_in_user(user) |> json(%{redirect: "/"})
+        conn
+        |> Audit.put("user.created", user, Audit.target_fields(user))
+        |> Audit.put("session.created", user, Audit.target_fields(user))
+        |> log_in_user(user)
+        |> json(%{redirect: "/"})
 
       {:error, :invite, :invite_spent} ->
         fail(conn, 403, "that invite has already been used")
@@ -176,7 +199,14 @@ defmodule PinhaWeb.AuthController do
          {:ok, credential_id, sign_count} <-
            WebAuthn.verify_authentication(params, challenge, Accounts.credential_keys(user)),
          {:ok, _credential} <- Accounts.record_authentication(user, credential_id, sign_count) do
-      conn |> log_in_user(user) |> json(%{redirect: "/"})
+      conn
+      |> Audit.put(
+        "session.created",
+        user,
+        Audit.target_fields(user, %{credential_id: credential_id})
+      )
+      |> log_in_user(user)
+      |> json(%{redirect: "/"})
     else
       {:error, :counter_did_not_advance} ->
         Logger.warning("refused an assertion whose signature counter did not advance")
@@ -189,6 +219,15 @@ defmodule PinhaWeb.AuthController do
   end
 
   def delete(conn, _params) do
+    actor = conn.assigns[:current_user]
+
+    conn =
+      if actor do
+        Audit.put(conn, "session.deleted", actor, Audit.target_fields(actor))
+      else
+        conn
+      end
+
     conn
     |> log_out_user()
     |> redirect(to: "/signin")
