@@ -80,7 +80,7 @@ defmodule Pinha.Git do
   def span_attributes(dir, subcommand, args) do
     [
       {"git.subcommand", subcommand},
-      {"git.argv", Enum.map_join(args, " ", &scrub/1)},
+      {"git.argv", Enum.map_join(args, " ", &readable/1)},
       {"repo", Path.basename(dir, ".git")}
     ]
   end
@@ -143,7 +143,7 @@ defmodule Pinha.Git do
     Widelog.write(%{
       event: "git",
       repo: Path.basename(dir, ".git"),
-      argv: Enum.map(args, &scrub/1),
+      argv: Enum.map(args, &readable/1),
       status: status,
       stderr: stderr
     })
@@ -485,6 +485,17 @@ defmodule Pinha.Git do
   @spec scrub(binary()) :: String.t()
   def scrub(binary) when is_binary(binary) do
     if String.valid?(binary), do: binary, else: String.replace_invalid(binary)
+  end
+
+  # An argument is read by a person, in a log line or on a span. The format
+  # strings carry the separators the output is parsed on, and a rev or a path
+  # from a URL can be any bytes at all; neither belongs raw in either place.
+  defp readable(arg) do
+    arg
+    |> scrub()
+    |> String.replace(~r/[\x00-\x1f\x7f]/, fn <<byte>> ->
+      "\\x" <> (byte |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(2, "0"))
+    end)
   end
 
   defp spec(id, ""), do: id <> ":"
