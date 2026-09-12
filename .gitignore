@@ -35,3 +35,7 @@ pinha-*.tar
 
 # Release artifacts built by scripts/release.sh.
 /dist/
+
+# Editor swap files.
+*.swp
+*.swo

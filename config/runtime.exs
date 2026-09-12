@@ -128,11 +128,42 @@ end
 honeycomb_key = if config_env() == :test, do: nil, else: System.get_env("HONEYCOMB_API_KEY")
 
 if honeycomb_key do
+  # A release exports RELEASE_VSN before the config providers run, so that is
+  # the version on the server. Anywhere else there is no release and the build
+  # is whatever the working copy sits on, so name it by that commit.
+  # Application.spec/2 cannot answer here: nothing is loaded yet, and
+  # --ignore-working-copy keeps starting the app from writing to the repo.
+  service_version =
+    System.get_env("RELEASE_VSN") ||
+      if jj = System.find_executable("jj") do
+        args = [
+          "log",
+          "-r",
+          "@",
+          "--no-graph",
+          "--ignore-working-copy",
+          "-T",
+          "commit_id.short()"
+        ]
+
+        case System.cmd(jj, args, stderr_to_stdout: true) do
+          {id, 0} -> String.trim(id)
+          _ -> "unknown"
+        end
+      else
+        "unknown"
+      end
+
   config :opentelemetry,
     span_processor: :batch,
     traces_exporter: :otlp,
     sampler: {:parent_based, %{root: {Pinha.Tracing.Sampler, %{}}}},
-    resource: %{service: %{name: System.get_env("OTEL_SERVICE_NAME", "pinha")}}
+    resource: %{
+      service: %{
+        name: System.get_env("OTEL_SERVICE_NAME", "pinha"),
+        version: service_version
+      }
+    }
 
   config :opentelemetry_exporter,
     otlp_protocol: :http_protobuf,
