@@ -55,6 +55,7 @@ defmodule Pinha.Ssh.Channel do
       :span,
       scan: <<>>,
       refs: nil,
+      finished: false,
       req_bytes: 0,
       resp_bytes: 0
     ]
@@ -139,8 +140,12 @@ defmodule Pinha.Ssh.Channel do
 
   def handle_ssh_msg({:ssh_cm, _cm, _msg}, state), do: {:ok, state}
 
+  # A client that goes away mid-clone never reaches `finish/2`: the channel is
+  # closed under it. Reporting the session here as well is what keeps an
+  # abandoned push in the log and its span out of the SDK's dropped pile.
   @impl true
   def terminate(_reason, state) do
+    unless state.finished, do: report(state, 130)
     close_port(state)
     if state.stderr_path, do: File.rm(state.stderr_path)
     :ok
@@ -297,14 +302,22 @@ defmodule Pinha.Ssh.Channel do
       Maintenance.after_receive(state.repo)
     end
 
-    log(state, status)
-    close_span(state, status)
+    report(state, status)
 
     :ssh_connection.send_eof(state.cm, state.id)
     :ssh_connection.exit_status(state.cm, state.id, status)
     :ssh_connection.close(state.cm, state.id)
 
-    stop(state)
+    stop(%{state | finished: true})
+  end
+
+  # Neither half runs twice: `finish/2` marks the session reported, and a
+  # session that never got as far as an exec has nothing to say.
+  defp report(%State{started_at: nil}, _status), do: :ok
+
+  defp report(state, status) do
+    log(state, status)
+    close_span(state, status)
   end
 
   defp stop(state) do
