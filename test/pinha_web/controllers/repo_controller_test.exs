@@ -13,8 +13,11 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "demo"
       assert html =~ "the demo repo"
       assert html =~ "first commit"
+      assert html =~ "branch"
       assert html =~ "main"
       assert html =~ ~s(href="/r/demo")
+      assert html =~ ~s(data-repository-kind="git")
+      assert html =~ "Plain Git repository and history"
     end
 
     test "says so when there are no repositories", %{conn: conn} do
@@ -32,6 +35,29 @@ defmodule PinhaWeb.RepoControllerTest do
 
       assert repo["name"] == "demo"
       assert repo["clone_url"] =~ "/r/demo.git"
+      assert repo["repository_model"] == "git"
+      assert repo["history_model"] == "git"
+    end
+
+    test "labels Jujutsu change history without hiding Git compatibility", %{conn: conn} do
+      seed_repo!("jj-demo", [
+        %{
+          message: "a jj change",
+          change_id: "kmpsxwvrlouvzysnkulnnnttrrytwstn",
+          files: %{"a.txt" => "a\n"}
+        }
+      ])
+
+      html = conn |> browser() |> get("/") |> html_response(200)
+      assert html =~ ~s(data-repository-kind="jujutsu")
+      assert html =~ "Jujutsu via Git"
+      assert html =~ "bookmark"
+
+      assert %{"repos" => [%{"repository_model" => "git", "history_model" => "jujutsu"}]} =
+               conn
+               |> put_req_header("accept", "application/json")
+               |> get("/")
+               |> json_response(200)
     end
   end
 
@@ -41,6 +67,7 @@ defmodule PinhaWeb.RepoControllerTest do
 
       assert %{"name" => "demo", "url" => url} = json_response(conn, 201)
       assert url =~ "/r/demo.git"
+      assert json_response(conn, 201)["repository_model"] == "git"
       assert get_resp_header(conn, "location") == ["/r/demo"]
       assert {:ok, _} = Repos.fetch("demo")
     end
@@ -63,7 +90,7 @@ defmodule PinhaWeb.RepoControllerTest do
   end
 
   describe "GET /:repo" do
-    test "shows the default branch, branches, tags, and recent commits", %{conn: conn} do
+    test "shows the default bookmark, bookmarks, tags, and recent changes", %{conn: conn} do
       repo =
         seed_repo!("demo", [
           %{message: "first commit", files: %{"a.txt" => "a\n"}},
@@ -77,7 +104,12 @@ defmodule PinhaWeb.RepoControllerTest do
       git!(repo.dir, ["tag", "v1", "main"])
 
       html = conn |> get("/r/demo") |> html_response(200)
-      assert html =~ "default"
+      assert html =~ ~s(data-repository-kind="jujutsu")
+      assert html =~ "Jujutsu via Git"
+      assert html =~ "Bookmarks &amp; tags"
+      assert html =~ "Recent changes"
+      assert html =~ "bookmark-ref"
+      assert html =~ "git HEAD"
       assert html =~ "main"
       assert html =~ "v1"
       assert html =~ "second commit"
@@ -85,6 +117,53 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "kmpsxwvr"
       assert html =~ "/r/demo.git"
       assert html =~ "ssh://git@"
+    end
+
+    test "shows history when tags, but no bookmarks, make commits reachable", %{conn: conn} do
+      repo = seed_repo!("demo", [%{message: "tagged change", files: %{"a.txt" => "a\n"}}])
+      git!(repo.dir, ["tag", "snapshot", "main"])
+      git!(repo.dir, ["update-ref", "-d", "refs/heads/main"])
+
+      listing = conn |> browser() |> get("/") |> html_response(200)
+      assert listing =~ "tagged change"
+      refute listing =~ "no changes"
+
+      html =
+        signed_in_conn()
+        |> get("/r/demo")
+        |> html_response(200)
+
+      assert html =~ "No branches"
+      assert html =~ "snapshot"
+      assert html =~ "tagged change"
+      refute html =~ "No commits have been pushed"
+    end
+
+    test "keeps Git terminology and emphasis for a plain repository", %{conn: conn} do
+      seed_repo!("plain", [%{message: "plain commit", files: %{"a.txt" => "a\n"}}])
+
+      html = conn |> get("/r/plain") |> html_response(200)
+
+      assert html =~ ~s(data-repository-kind="git")
+      assert html =~ "Plain Git repository and history"
+      assert html =~ "Branches &amp; tags"
+      assert html =~ "Recent commits"
+      assert html =~ ">Branch<"
+      assert html =~ "default"
+      refute html =~ "bookmark-ref"
+    end
+
+    test "uses the persisted Jujutsu model even before it has changes", %{conn: conn} do
+      repo = create_repo!("native")
+      git!(repo.dir, ["config", "pinha.kind", "jj"])
+
+      html = conn |> get("/r/native") |> html_response(200)
+
+      assert html =~ ~s(data-repository-kind="jujutsu")
+      assert html =~ ~s(data-repository-model="jj")
+      assert html =~ "Native Jujutsu repository with Git-compatible transport"
+      assert html =~ "No bookmarks"
+      assert html =~ "No changes have been published"
     end
 
     test "resolves a name given with the .git suffix", %{conn: conn} do

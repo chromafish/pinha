@@ -20,6 +20,7 @@ defmodule PinhaWeb.Layouts do
 
   slot :inner_block, required: true
   slot :trail, doc: "link trail shown on the header line in place of the title"
+  slot :badge, doc: "compact context label shown beside the title or trail"
   slot :controls, doc: "the control bar pinned above the status bar"
 
   def app(assigns) do
@@ -30,6 +31,7 @@ defmodule PinhaWeb.Layouts do
 
         <nav :if={@trail != []} class="trail">{render_slot(@trail)}</nav>
         <span :if={@trail == [] and @title} class="where">{@title}</span>
+        <span :if={@badge != []} class="frame-badge">{render_slot(@badge)}</span>
 
         <span :if={@count} class="reading">{@count}</span>
 

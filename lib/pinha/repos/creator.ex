@@ -63,10 +63,11 @@ defmodule Pinha.Repos.Creator do
       with :ok <- File.mkdir_p(tmp),
            {:ok, _} <- Git.run(root, ["init", "--bare", "--quiet", "--initial-branch=main", tmp]),
            {:ok, _} <- Git.run(tmp, ["config", "http.receivepack", "true"]),
+           {:ok, _} <- Git.run(tmp, ["config", "pinha.kind", "git"]),
            {:ok, _} <- write_owner(tmp, owner_uid),
            :ok <- File.rm(Path.join(tmp, "description")),
            :ok <- File.rename(tmp, target) do
-        {:ok, %Repo{name: name, dir: target, description: nil, owner_uid: owner_uid}}
+        {:ok, %Repo{name: name, dir: target, description: nil, owner_uid: owner_uid, kind: :git}}
       else
         error ->
           Logger.error("repo create failed for #{name}: #{inspect(error)}")

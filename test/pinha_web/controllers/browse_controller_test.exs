@@ -25,11 +25,25 @@ defmodule PinhaWeb.BrowseControllerTest do
   end
 
   describe "tree" do
-    test "lists the root of the default branch", %{conn: conn} do
+    test "lists the root of the default bookmark", %{conn: conn} do
       html = conn |> get("/r/demo/tree") |> html_response(200)
       assert html =~ "README.md"
       assert html =~ "src/"
-      assert html =~ "branch"
+      assert html =~ "bookmark"
+    end
+
+    test "defaults to the newest reachable change without a bookmark", %{
+      conn: conn,
+      repo: repo,
+      commits: [head | _]
+    } do
+      git!(repo.dir, ["tag", "snapshot", head.id])
+      git!(repo.dir, ["update-ref", "-d", "refs/heads/main"])
+
+      html = conn |> get("/r/demo/tree") |> html_response(200)
+      assert html =~ "README.md"
+      assert html =~ "second commit"
+      assert html =~ "commit"
     end
 
     test "lists a subdirectory and links back to its parent", %{conn: conn} do

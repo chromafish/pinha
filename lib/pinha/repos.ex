@@ -1,7 +1,7 @@
 defmodule Pinha.Repos do
   @moduledoc """
-  Repository lifecycle on disk. Git is the source of truth: there is no
-  metadata store, so every function here reads the repo root directly.
+  Repository lifecycle on disk. Repository metadata stays with the repository,
+  so every function here reads the repo root directly.
 
   Ownership follows the same rule. A repo records the `uid` of whoever may
   push to it as `pinha.owner` in its own config, which is read here straight
@@ -186,6 +186,15 @@ defmodule Pinha.Repos do
     end
   end
 
+  @doc "The persisted repository model; an absent or unknown marker is plain Git."
+  @spec kind(String.t()) :: :git | :jj
+  def kind(dir) do
+    case pinha_config(dir, "kind") do
+      value when value in ["jj", "jujutsu"] -> :jj
+      _ -> :git
+    end
+  end
+
   @doc """
   The `pinha.owner` entry of a repo's config, read from the file itself.
 
@@ -194,14 +203,16 @@ defmodule Pinha.Repos do
   to admins.
   """
   @spec owner_uid(String.t()) :: String.t() | nil
-  def owner_uid(dir) do
+  def owner_uid(dir), do: pinha_config(dir, "owner")
+
+  defp pinha_config(dir, wanted_key) do
     case File.read(Path.join(dir, "config")) do
-      {:ok, text} -> find_owner(text)
+      {:ok, text} -> find_pinha_config(text, wanted_key)
       {:error, _} -> nil
     end
   end
 
-  defp find_owner(text) do
+  defp find_pinha_config(text, wanted_key) do
     text
     |> String.split("\n")
     |> Enum.reduce_while({nil, nil}, fn line, {section, _} = acc ->
@@ -212,7 +223,7 @@ defmodule Pinha.Repos do
         entry ->
           case {section, String.split(entry, "=", parts: 2)} do
             {"pinha", [key, value]} ->
-              if String.trim(key) |> String.downcase() == "owner" do
+              if String.trim(key) |> String.downcase() == wanted_key do
                 {:halt, {section, String.trim(value)}}
               else
                 {:cont, acc}
@@ -233,6 +244,13 @@ defmodule Pinha.Repos do
 
   defp load(name) do
     dir = dir(name)
-    %Repo{name: name, dir: dir, description: description(dir), owner_uid: owner_uid(dir)}
+
+    %Repo{
+      name: name,
+      dir: dir,
+      description: description(dir),
+      owner_uid: owner_uid(dir),
+      kind: kind(dir)
+    }
   end
 end

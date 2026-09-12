@@ -25,7 +25,24 @@ defmodule Pinha.GitTest do
   end
 
   test "default_branch/1 reads HEAD", %{repo: repo} do
+    assert Git.default_bookmark(repo) == "main"
     assert Git.default_branch(repo) == "main"
+  end
+
+  test "a repository without bookmarks uses its newest tagged change", %{
+    repo: repo,
+    commits: [head | _]
+  } do
+    git!(repo.dir, ["tag", "snapshot", head.id])
+    git!(repo.dir, ["update-ref", "-d", "refs/heads/main"])
+
+    assert Git.default_bookmark(repo) == nil
+    assert Git.bookmarks(repo) == []
+    assert [%{id: id} | _] = Git.log_all(repo, limit: 10)
+    assert id == head.id
+
+    assert %{id: id, kind: :commit, name: id, change_id: @second_change} =
+             Git.default_revision(repo)
   end
 
   test "branches/1 and tags/1 report refs with their tips", %{repo: repo, commits: [head | _]} do
@@ -44,6 +61,13 @@ defmodule Pinha.GitTest do
     assert first.parents == []
     assert second.parents == [first.id]
     assert second.author_name == "Tester"
+  end
+
+  test "history_kind/1 distinguishes Jujutsu change history from plain Git", %{commits: commits} do
+    assert Git.history_kind(commits) == :jj
+    assert Git.history_kind([]) == :git
+    assert Git.history_kind([%{change_id: nil}]) == :git
+    assert Git.history_kind([%{change_id: "not-a-jj-change-id"}]) == :git
   end
 
   test "log/3 limits and filters by path", %{repo: repo} do
@@ -65,7 +89,7 @@ defmodule Pinha.GitTest do
     end
 
     test "branches and tags", %{repo: repo, commits: [head | _]} do
-      assert {:ok, %{kind: :branch, id: id}} = Git.resolve(repo, "main")
+      assert {:ok, %{kind: :bookmark, id: id}} = Git.resolve(repo, "main")
       assert id == head.id
 
       git!(repo.dir, ["tag", "v1", head.id])
@@ -163,6 +187,27 @@ defmodule Pinha.GitTest do
   end
 
   describe "commits" do
+    test "native jj change-id headers take precedence over legacy trailers", %{
+      repo: repo,
+      commits: [head | _]
+    } do
+      native_change = "tutwssxtpqkqnrwzyzryzqquuuvrprpx"
+
+      id =
+        native_commit!(
+          repo,
+          head.id,
+          "refs/heads/native",
+          native_change,
+          "native change\n\nchange-id: legacytrailer"
+        )
+
+      assert [%{id: ^id, change_id: ^native_change}] = Git.log(repo, "native", limit: 1)
+      assert Git.change_id_of(repo, id) == native_change
+      assert {:ok, %{id: ^id, kind: :change_id}} = Git.resolve(repo, native_change)
+      assert Git.resolve(repo, "legacytrailer") == {:error, :not_found}
+    end
+
     test "commit/2 returns metadata with the change-id trailer", %{
       repo: repo,
       commits: [head | _]
@@ -238,5 +283,24 @@ defmodule Pinha.GitTest do
 
       assert output == ""
     end
+  end
+
+  defp native_commit!(repo, parent, ref, change_id, message) do
+    tree = repo.dir |> git!(["show", "-s", "--format=%T", parent]) |> String.trim()
+    object = tmp_dir!() |> Path.join("commit")
+
+    File.write!(
+      object,
+      "tree #{tree}\n" <>
+        "parent #{parent}\n" <>
+        "author Tester <tester@example.com> 1767409445 +0000\n" <>
+        "committer Tester <tester@example.com> 1767409445 +0000\n" <>
+        "change-id #{change_id}\n\n" <>
+        message <> "\n"
+    )
+
+    id = repo.dir |> git!(["hash-object", "-t", "commit", "-w", object]) |> String.trim()
+    git!(repo.dir, ["update-ref", ref, id])
+    id
   end
 end

@@ -33,6 +33,8 @@ defmodule Pinha.ReposTest do
       assert repo.dir == Path.join(root, "demo.git")
       assert Repos.bare_repo?(repo.dir)
       assert {:ok, "true\n"} = Git.run(repo.dir, ["config", "http.receivepack"])
+      assert {:ok, "git\n"} = Git.run(repo.dir, ["config", "pinha.kind"])
+      assert repo.kind == :git
     end
 
     test "accepts a name given with the .git suffix" do
@@ -81,6 +83,17 @@ defmodule Pinha.ReposTest do
 
       File.write!(Path.join(repo.dir, "description"), "the demo repo\n")
       assert [%{description: "the demo repo"}] = Repos.list()
+    end
+
+    test "reads the durable repository kind and treats an absent marker as Git" do
+      {:ok, marked} = Repos.create("marked")
+      assert {:ok, _} = Git.run(marked.dir, ["config", "pinha.kind", "jj"])
+
+      manual = Repos.dir("manual")
+      File.mkdir_p!(manual)
+      assert {:ok, _} = Git.run(manual, ["init", "--bare", "--quiet", "."])
+
+      assert [%{name: "manual", kind: :git}, %{name: "marked", kind: :jj}] = Repos.list()
     end
   end
 

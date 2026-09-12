@@ -37,11 +37,11 @@ What admits a registration. Minted by an admin, shown once, stored as a SHA-256 
 
 === Repository
 
-See link:0001.pinha.git-hosting.adoc[Git hosting].
+See link:0001.pinha.git-hosting.adoc[Repository hosting].
 
 === Surface
 
-The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-in, sign-out, and settings. Every route other than the sign-in surface requires an authenticated user. Reading a repository asks for nothing more; writing or deleting one asks for its owner or an admin, by the rule in link:0001.pinha.git-hosting.adoc[Git hosting]. The SSH listener admits only registered keys, and the user it resolves is subject to the same rule.
+The routes in link:0001.pinha.git-hosting.adoc[Repository hosting], plus sign-up, sign-in, sign-out, and settings. Every route other than the sign-in surface requires an authenticated user. Reading a repository asks for nothing more; writing or deleting one asks for its owner or an admin, by the rule in link:0001.pinha.git-hosting.adoc[Repository hosting]. The SSH listener admits only registered keys, and the user it resolves is subject to the same rule.
 
 == Mechanics
 
@@ -75,13 +75,13 @@ Successful lookups are cached in the node for one minute, keyed by that same SHA
 
 === Git transport
 
-`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user's email as the HTTP username and an access token as the password (the public username is not used for git transport). The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token. SSH carries no Basic credentials: the connection is already authenticated by key before any git command runs, which is why `git@<host>:<name>.git` pushes without a prompt. Either transport, once it knows the user, checks the repository's owner before starting git; authentication says who is asking, and link:0001.pinha.git-hosting.adoc[Git hosting] says what they may do.
+`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user's email as the HTTP username and an access token as the password (the public username is not used for git transport). The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token. SSH carries no Basic credentials: the connection is already authenticated by key before any git command runs, which is why `git@<host>:<name>.git` pushes without a prompt. Either transport, once it knows the user, checks the repository's owner before starting git; authentication says who is asking, and link:0001.pinha.git-hosting.adoc[Repository hosting] says what they may do.
 
 === SSH keys
 
 `/settings` takes a key pasted in `authorized_keys` form: type, base64 body, and an optional comment on one line. The server parses it with `:public_key`, accepts Ed25519, ECDSA, and RSA of at least 2048 bits, refuses DSA, and stores the key with its SHA-256 fingerprint, falling back to the comment when the label field is left blank. A fingerprint already registered is refused whoever pastes it, so a second account cannot quietly attach itself to someone's key. Settings lists each key by label, algorithm, `SHA256:` fingerprint, and last use, and deleting the row revokes it.
 
-Authentication looks the offered key up by fingerprint, the same single indexed read the token path does, and binds the connection to the owner for its lifetime; link:0001.pinha.git-hosting.adoc[Git hosting] covers what that session may then run. `last_used_at` is written at most once an hour per key, so a fetch loop does not turn into a write per connection, and a rejected key is logged with its fingerprint and the peer address and counted. A connection authenticated before a key was deleted survives until it ends, which is bounded by the fetch or push it is running.
+Authentication looks the offered key up by fingerprint, the same single indexed read the token path does, and binds the connection to the owner for its lifetime; link:0001.pinha.git-hosting.adoc[Repository hosting] covers what that session may then run. `last_used_at` is written at most once an hour per key, so a fetch loop does not turn into a write per connection, and a rejected key is logged with its fingerprint and the peer address and counted. A connection authenticated before a key was deleted survives until it ends, which is bounded by the fetch or push it is running.
 
 === Recovery
 

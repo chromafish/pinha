@@ -1,0 +1,123 @@
+= Native Jujutsu hosting
+:revdate: 2026-09-12
+:status: Draft
+:toc:
+:sectnums:
+
+== Context
+
+`jj git push` synchronizes Git objects behind refs; it does not synchronize Jujutsu's visible-head set, conflicted references, or operation-derived change evolution. Jujutsu's https://github.com/jj-vcs/jj/blob/main/docs/technical/architecture.md[commit backend abstraction] deliberately separates storage from synchronization, and its https://github.com/jj-vcs/jj/blob/main/lib/src/op_store.rs[operations and views are repository-local state], not records to exchange between users. At this spec's date, the https://github.com/jj-vcs/jj/issues/7135[upstream native-remote design] is still open. Pinha therefore provides a versioned native remote protocol and companion client for repositories whose persisted kind is `jj`, instead of uploading a client's operation log or presenting Git transport as native support. A repository of kind `git` remains governed by link:0001.pinha.git-hosting.adoc[Repository hosting] and never gains a native view merely because its commits contain Jujutsu headers.
+
+== Scope
+
+* Clone, fetch, and publish a link:0001.pinha.git-hosting.adoc[Repository] of kind `jj` as Jujutsu state, including branchless visible heads, change IDs and predecessors, divergent rewrites, conflicts, bookmarks, and tags, without requiring a Git branch or exporting private workspace state.
+* Merge concurrent native publications and Git-compatible pushes into one durable server view, expose the representable subset to Git clients, and keep protocol compatibility independent of Jujutsu's unstable on-disk formats.
+
+== Abstractions
+
+=== Published view
+
+The public subset of the server repository's current Jujutsu view: its non-root visible commit heads, bookmark targets, and tag targets. A bookmark or tag target may be absent, resolved to one commit, or conflicted among terms. The view contains no working-copy commit map, current revision, local remote-tracking state, or client operation metadata.
+
+All commits reachable from a visible head or reference target are readable. Removing a head from a later view makes it unpublished when no remaining head or target reaches it, while retained server operations may continue protecting its objects for recovery and evolution browsing.
+
+=== Change
+
+The commits carrying one Jujutsu change ID together with their predecessor relationships. A normal rewrite adds a successor and withdraws the superseded commit from the published view. Concurrent successors of the same predecessor are divergent: both remain visible until a later publication resolves them. Commit identity and change identity are never conflated.
+
+=== Remote snapshot
+
+An opaque server view token plus the published view and protocol capabilities observed by a client. The client persists its last fetched snapshot as the three-way-merge base for the next fetch or publication. A token identifies server state; it is not a serialized server operation and grants no authority.
+
+=== Publication
+
+An authenticated request to transition a remote snapshot by adding or removing selected visible heads and by changing selected bookmark or tag targets. It contains the Jujutsu objects and native metadata missing on the server, plus explicit predecessor relationships needed to preserve change evolution. A publication is atomic from the perspective of readers and becomes one operation in the server repository.
+
+=== Pinha Jujutsu client
+
+The versioned `pinha-jj` companion executable, paired with a supported upstream Jujutsu release and compatible server protocol. It opens a local Jujutsu repository, evaluates revsets locally, transfers native objects and view deltas, and records a named Pinha remote. It is separate because upstream `jj` has no native-remote extension point; `jj` continues to work against Pinha through the narrower Git compatibility surface.
+
+== Mechanics
+
+=== Client workflow
+
+`pinha-jj clone <url> [directory]` creates a local Jujutsu repository and workspace, records the remote, fetches the complete published view, and makes every published anonymous head and reference visible locally. It creates no bookmark. With one non-root visible head it may create the working-copy commit on that head; with several, it does not choose by date or Git `HEAD` and requires an explicit `--at <revision>` to select a checkout parent. An empty repository starts from Jujutsu's root commit.
+
+`pinha-jj fetch [remote]` fetches the current snapshot and missing objects, records server bookmark and tag targets as remote state, and merges changes since the prior snapshot without discarding local-only heads or work. If a formerly published head was removed, the client removes only the corresponding remote visibility; a locally modified, referenced, or descended commit remains local.
+
+`pinha-jj push -r <revset>... [remote]` publishes explicitly selected revisions. A selection may be a branchless commit or stack and does not need a bookmark. Repeated `--bookmark <name>` and `--tag <name>` options publish those local targets or deletions, including a resolved target that replaces a conflict. `--withdraw -r <revset>` explicitly withdraws selected anonymous heads; a commit still reachable from another published head or target remains published. A push with no revision or reference selection reports what is publishable and changes nothing, so it cannot upload every local visible head by accident.
+
+Each client build declares the upstream `jj` repository versions it can open. It uses that release's repository loader and upgrade path and refuses an incompatible local format before changing either local or remote state. The wire protocol is negotiated separately, so a server upgrade does not require clients to share the server's on-disk format.
+
+Revsets are evaluated entirely by the client; the server receives object IDs and a structured delta, never executable revset text. The client refuses revisions matched by the repository's configured private revset unless the user supplies the explicit override, and it warns or refuses according to Jujutsu policy for empty descriptions, authorless commits, and unresolved conflicts. A working-copy commit is ordinary publishable history only when the user selects it. Client workspaces, local-only remote state, and the client operation log are never sent.
+
+There is no silent downgrade. A native URL or command fails with a capability or version error if the server cannot speak a compatible native protocol; the user may deliberately configure the Git remote instead, accepting its reduced semantics.
+
+=== Fetch
+
+The client sends its last known view token and object inventory. The server opens one immutable repository snapshot and returns its current token, published head and reference targets, change/predecessor metadata needed to interpret them, and the missing object closure. A first fetch receives the full published view; later fetches may use a delta, but the resulting state is identical to a full snapshot.
+
+Objects are transferred through a versioned, content-addressed envelope. An implementation may use a Git pack for commit-backend objects, but the envelope also carries Jujutsu metadata and conflict objects that Git refs or a pack cannot express. Every hash, parent/tree dependency, change ID, predecessor, and advertised capability is validated before the client installs the fetched snapshot.
+
+Fetch requires read access from link:0001.pinha.git-hosting.adoc[Repository hosting]. It exposes only published state, even though retained server operations may still make an older commit available to an explicit authorized history lookup.
+
+=== Publish
+
+The client computes a delta against its remote snapshot. It sends the base view token; heads to add or withdraw; bookmark and tag target changes; selected commits, trees, files, conflicts, and backend metadata absent from the server; and rewrite predecessor relationships. Object closure includes all missing ancestors needed to read a selected commit, but unrelated local heads are omitted.
+
+The server authenticates the user, checks owner-or-admin write access, validates the known base token and every content-addressed object, then obtains the repository write lock. A base that has aged out of retained operations is rejected with a fetch-required response. Otherwise Pinha performs a three-way merge between the base snapshot, the client's delta, and the current published view:
+
+* Independent head and reference changes compose.
+* Concurrent successors of one change predecessor remain as divergent commits instead of one overwriting the other.
+* Concurrent incompatible bookmark or tag updates produce a native conflicted target instead of a last-writer-wins ref.
+* A removal applies only to state present in the base; it cannot silently remove a head or target introduced concurrently.
+* A successor withdraws a published predecessor only when the submitted evolution says so and no remaining published target requires the predecessor.
+
+Pinha writes missing objects, records the merged view as one server operation, updates the Git projection, and clears the mutation journal before acknowledging success. Any validation or storage failure leaves the prior published view visible. A crash is replayed or rolled back from the journal under the same lock before another writer or maintenance job proceeds.
+
+The response contains the resulting view token and any conflicts introduced by the merge. The client records that snapshot only after all local remote state is committed as a local Jujutsu operation, so an interrupted client can fetch and converge without assuming whether the server accepted its publication.
+
+=== Change evolution and conflicts
+
+A rewrite preserves its change ID and records its predecessor commit IDs. Pinha uses those explicit facts, not commit dates or message similarity, to render evolution and decide which prior head a publication proposes to replace. Older commits remain addressable while retained by the server operation log. Two visible commits with one change ID are displayed as divergence until a publication explicitly resolves them.
+
+Conflict objects and conflicted reference targets are valid published state. Native fetch reproduces them; browsing renders their terms; raw-file download refuses a conflicted blob rather than choosing a side. Publication may carry and later resolve conflicts. Server-side reads and writes use the Jujutsu adapter's tree and merge semantics rather than parsing Git conflict encodings themselves.
+
+=== Protocol
+
+HTTPS exposes `GET /r/:repo/jj/capabilities`, `POST /r/:repo/jj/fetch`, and `POST /r/:repo/jj/push`. Fetch and push are streaming framed requests so packs and large files are not buffered in BEAM memory. HTTP sessions use the tokens from link:0003.pinha.account.authentication.adoc[Account authentication]; capability discovery and fetch require read access, while push requires owner-or-admin write access.
+
+These native routes are advertised only for repositories of kind `jj`. A request against a Git-kind repository returns a repository-kind capability error without creating a sidecar, changing the marker, or attempting to infer a native view from Git refs.
+
+SSH accepts one additional allowlisted exec, `pinha-jj '<name>.git'`, after public-key authentication. The first protocol frame selects capabilities, fetch, or push. The path normalization, no-shell parsing, one-exec limit, flow control, environment filtering, authorization, logging, and exit-status rules are the same as Git SSH. No client-supplied argument is evaluated as a command on the server.
+
+The protocol begins with a Pinha protocol version, object-hash algorithm, repository-format capabilities, compression choices, and maximum frame sizes. Its wire schema describes published-view and object semantics rather than exposing Jujutsu operation-store bytes. Pinha may upgrade its pinned on-disk Jujutsu format without changing the protocol; incompatible semantic changes require protocol negotiation, and neither peer writes partial state when negotiation fails.
+
+=== Git access to a Jujutsu repository
+
+After every native publication, Pinha exports each resolved bookmark and tag to the link:0001.pinha.git-hosting.adoc[Git projection]. It removes the exported ref for a native conflicted target and never creates a synthetic Git ref for an anonymous head. Internal retention refs remain hidden. Consequently a Git client sees a useful but potentially incomplete repository, while a native client sees the entire published view.
+
+A Git receive runs under the same repository write lock and is imported as one server operation before success. Created, moved, force-updated, and deleted Git branches become bookmark target changes; tags become tag target changes. Raw commit headers such as `change-id`, `jj:trees`, and `jj:conflict-labels` survive ordinary Git object transfer as opaque commit bytes. Git refs and packs do not carry an exact predecessor map, the published visible-head set, conflicted reference targets, or either side's operation log, so Pinha records the received ref delta as a new server operation without inventing those missing facts. A Git update to a currently conflicted native target is rejected so Git cannot resolve a conflict by accidentally choosing one term.
+
+Native fetch immediately observes a completed Git receive. Git `HEAD` remains only a projection hint and never changes the native visible-head selection or clone checkout. Publishing and collaborating without bookmarks requires the native protocol.
+
+=== Server operations and maintenance
+
+Every accepted native publication, completed Git receive, administrative recovery, or view-format migration is a server Jujutsu operation. Its metadata identifies the authenticated actor `uid` or operator, transport, time, description, parent operation, resulting view, and client base token when present. These are public-repository transactions; Pinha never imports a client's operations, hostname, username, workspace map, or local undo history.
+
+Readers pin the last complete operation for the duration of a request. Writers serialize per repository, while different repositories proceed independently. Server operation heads and their protected objects are reconciled before Git garbage collection. This version has no time or size limit for server operations, so maintenance retains them and their referenced objects. Any later compaction must preserve everything reachable from the current published view and record the expiry boundary as an administrative operation.
+
+Native fetch and publication add `jj-http` or `jj-ssh` widelogs and spans to the operating surface in link:0001.pinha.git-hosting.adoc[Repository hosting]. Events record protocol version, base and resulting view tokens, counts and bytes of transferred objects, head/reference delta counts, conflicts, authenticated user, and failure stage; they do not log file contents, credentials, or full object payloads.
+
+== Data Model
+
+The server persists native state inside each Jujutsu repository's `.pinha/jj/` directory defined by link:0001.pinha.git-hosting.adoc[Repository hosting]:
+
+* Jujutsu views containing visible head IDs and bookmark/tag reference targets, including conflict terms.
+* Operations containing parent operation IDs, resulting view ID, timestamp, description, authenticated actor and transport metadata, and optional client base token.
+* Operation-head and index state, change/predecessor relationships, conflict objects, and commit-backend metadata not encoded by ordinary Git refs.
+* One bounded mutation journal describing an integration that has started but has not yet made its Jujutsu view and Git projection mutually consistent.
+
+Commit, tree, and file objects live in the repository's Jujutsu Git backend. Hidden `refs/jj/*` protect objects needed by current or retained operations; exported `refs/heads/*` and `refs/tags/*` remain derived compatibility state.
+
+For each Pinha remote, the client persists the remote URL and transport, negotiated protocol capabilities, last fetched server view token, and the corresponding remote published heads and reference targets in repository-local metadata. That baseline participates in the client's own next operation, but its serialization is never copied into the server operation store. Workspace commit mappings and all other local operation-log state remain solely in the client repository.

@@ -2,7 +2,7 @@ defmodule PinhaWeb.BrowseController do
   @moduledoc """
   Tree, blob, raw, and commit views.
 
-  A `:rev` resolves as full commit id first, then branch, then tag, then
+  A `:rev` resolves as full commit id first, then bookmark, then tag, then
   Jujutsu change id; an ambiguous change-id prefix lists every match.
   """
 
@@ -96,28 +96,25 @@ defmodule PinhaWeb.BrowseController do
   defp blob_lines(%{too_large?: true}), do: []
   defp blob_lines(%{content: content}), do: content |> Git.scrub() |> String.split("\n")
 
-  # Resolves the repo and the revision, defaulting to the default branch, then
-  # hands both to the caller.
+  # Resolves the repo and revision. Without one, an existing HEAD bookmark wins;
+  # a bookmarkless repository uses its newest reachable commit.
   defp with_target(conn, name, rev, fun) do
     case Repos.fetch(name) do
       {:ok, repo} ->
-        case rev || Git.default_branch(repo) do
+        case if(rev, do: Git.resolve(repo, rev), else: default_target(repo)) do
           nil ->
-            fail(conn, 404, "repository has no default branch")
+            fail(conn, 404, "repository has no revisions")
 
-          rev ->
-            case Git.resolve(repo, rev) do
-              {:ok, target} ->
-                fun.(conn, repo, target)
+          {:ok, target} ->
+            fun.(conn, repo, target)
 
-              {:ambiguous, matches} ->
-                conn
-                |> put_status(300)
-                |> render(:ambiguous, repo: repo, rev: rev, matches: matches)
+          {:ambiguous, matches} ->
+            conn
+            |> put_status(300)
+            |> render(:ambiguous, repo: repo, rev: rev, matches: matches)
 
-              {:error, :not_found} ->
-                fail(conn, 404, "no such revision")
-            end
+          {:error, :not_found} ->
+            fail(conn, 404, "no such revision")
         end
 
       {:error, :invalid_name} ->
@@ -128,6 +125,13 @@ defmodule PinhaWeb.BrowseController do
 
       {:error, :not_found} ->
         fail(conn, 404, "no such repository")
+    end
+  end
+
+  defp default_target(repo) do
+    case Git.default_revision(repo) do
+      nil -> nil
+      target -> {:ok, target}
     end
   end
 

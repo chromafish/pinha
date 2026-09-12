@@ -1,6 +1,10 @@
 # pinha
 
-A software forge
+A software forge.
+
+## Why?
+
+It came up to me in a dream.
 
 ## Running it
 
@@ -79,6 +83,9 @@ See `server/README.md
 
 ## Repositories
 
+Currently the implementation is quite naive, and all repo operations are done
+by shelling out `git` and `jj` processes.
+
 The repo root holds one flat level of bare repositories: `$ROOT/foo.git`,
 never `$ROOT/group/foo.git`. `HEAD` sets the default branch and `description`
 feeds the repo list. Creating a repository by hand with `mkdir` plus
@@ -110,9 +117,8 @@ mints invites at `/settings` and hands them over by whatever channel they
 already have with the person, since the server sends no mail. An invite is
 shown once, admits one account, and expires in a week.
 
-A git client cannot answer a WebAuthn challenge, so clone and push use a token
-minted at `/settings` instead. Your email is the username, the token is the
-password:
+git clients can use a token minted at `/settings` instead. Your email is the username,
+the token is the password:
 
 ```sh
 git clone https://you@example.com:pinha_xxx@git.example.com/r/demo.git
@@ -138,18 +144,11 @@ _build/prod/rel/pinha/bin/pinha rpc 'Pinha.Accounts.Registration.authorize("you@
 ## Operating
 
 Logs go to stdout as JSON, one canonical widelog line per request, `event`
-naming which kind it is:
-timestamp, transport (`http` or `ssh`), method, route, repo, rev, git protocol
-(`upload-pack`, `receive-pack`, or `none`), status, duration, request and
-response bytes, and user agent. An SSH session writes one line of the same
-shape per exec, carrying the peer address and git's exit status. Push lines
-also carry per-ref old and new tips, truncated after `:log_max_refs` refs.
-
-A git process that exits non-zero has its stderr captured rather than
-inherited, so what it said lands on that request's own line as `git_stderr`
-instead of as loose text between the JSON. A git command with no request
-behind it, from browsing or background maintenance, writes its own
-`event: "git"` line with the repository, the arguments, and the status.
+naming which kind it is: timestamp, transport (`http` or `ssh`), method, route,
+repo, rev, git protocol (`upload-pack`, `receive-pack`, or `none`), status,
+duration, request and response bytes, and user agent. An SSH session writes one
+line of the same shape per exec, carrying the peer address and git's exit status.
+Push lines also carry per-ref old and new tips, truncated after `:log_max_refs` refs.
 
 Traces are OpenTelemetry over OTLP. The HTTP surface comes from the events
 Phoenix, Bandit and Ecto already emit; neither git transport is Phoenix, so
@@ -178,7 +177,3 @@ fetch, push, force-push, tag and branch deletion, protocol v2, and gzipped
 request bodies, all of it authenticated with a token. The SSH tests do the
 same through a real `ssh`, against the listener the application started, with
 a key pair `ssh-keygen` made for the test.
-
-The passkey ceremonies themselves are not covered: verifying an attestation
-needs an authenticator, so the tests exercise everything around it and write
-credential rows directly.

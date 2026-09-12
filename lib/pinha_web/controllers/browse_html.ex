@@ -40,7 +40,7 @@ defmodule PinhaWeb.BrowseHTML do
   end
 
   defp kind(:commit), do: "commit"
-  defp kind(:branch), do: "branch"
+  defp kind(:bookmark), do: "bookmark"
   defp kind(:tag), do: "tag"
   defp kind(:change_id), do: "change"
 end

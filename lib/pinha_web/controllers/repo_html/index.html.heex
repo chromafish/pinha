@@ -12,25 +12,59 @@
         <thead>
           <tr>
             <th>Name</th>
-            <th>Branch</th>
-            <th>Head</th>
+            <th>Type</th>
+            <th>Reference</th>
+            <th>Change</th>
+            <th>Commit</th>
             <th>Subject</th>
             <th>Updated</th>
             <th>Description</th>
           </tr>
         </thead>
         <tbody>
-          <tr :for={entry <- @repos} data-row>
+          <tr
+            :for={entry <- @repos}
+            data-row
+            data-repository-kind={if(jj_history?(entry.repo_kind), do: "jujutsu", else: "git")}
+          >
             <td><a class="path" href={repo_path(entry.repo.name)}>{entry.repo.name}</a></td>
-            <td class="ref">{entry.default_branch}</td>
             <td>
-              <a :if={entry.head} class="id" href={commit_path(entry.repo.name, entry.head.id)}>
+              <.repository_kind_badge kind={entry.repo_kind} model={entry.repo.kind} />
+            </td>
+            <td>
+              <span :if={entry.default_bookmark} class="reference-summary">
+                <span class={[
+                  "reference-kind",
+                  jj_history?(entry.repo_kind) && "reference-kind-muted"
+                ]}>
+                  {if(jj_history?(entry.repo_kind), do: "bookmark", else: "branch")}
+                </span>
+                <span class={[
+                  "ref",
+                  jj_history?(entry.repo_kind) && "bookmark-ref"
+                ]}>
+                  {entry.default_bookmark}
+                </span>
+              </span>
+              <span :if={is_nil(entry.default_bookmark)} class="muted">—</span>
+            </td>
+            <td class="change-id">
+              {jj_history?(entry.repo_kind) && entry.head && short(entry.head.change_id)}
+            </td>
+            <td>
+              <a
+                :if={entry.head}
+                class={["id", jj_history?(entry.repo_kind) && "id-secondary"]}
+                href={commit_path(entry.repo.name, entry.head.id)}
+              >
                 {short(entry.head.id)}
               </a>
             </td>
             <td class="prose">
               {(entry.head && entry.head.subject) || ""}
-              <span :if={is_nil(entry.head)} class="muted">no commits</span>
+              <span :if={is_nil(entry.head)} class="muted">
+                {if(jj_history?(entry.repo_kind), do: "no changes", else: "no commits")}
+              </span>
             </td>
             <td class="right">{entry.head && format_date(entry.head.author_date)}</td>
             <td class="prose wide">{entry.repo.description}</td>

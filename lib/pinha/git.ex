@@ -3,9 +3,9 @@ defmodule Pinha.Git do
   Reads bare repositories by shelling out to `git`.
 
   Git is the source of truth: there is no metadata store and no index, so
-  every call here runs against the repo on disk. The server never runs `jj`;
-  Jujutsu support comes from reading the `change-id` trailer that clients
-  write into their commits.
+  every call here runs against the repo on disk. The server never runs `jj`.
+  It reads the native `change-id` commit header written by current Jujutsu
+  clients, with the older message trailer as a compatibility fallback.
   """
 
   alias Pinha.Config
@@ -24,6 +24,7 @@ defmodule Pinha.Git do
   @max_render_bytes 5_000_000
 
   @stderr_var "PINHA_STDERR"
+  @stdin_var "PINHA_STDIN"
   @stderr_limit 4_000
 
   @type commit :: %{
@@ -40,6 +41,19 @@ defmodule Pinha.Git do
           body: String.t()
         }
 
+  @type history_kind :: :git | :jj
+
+  @doc "Whether the displayed history carries Jujutsu change identity."
+  @spec history_kind([commit()]) :: history_kind()
+  def history_kind(commits) when is_list(commits) do
+    if Enum.any?(commits, &jj_change?/1), do: :jj, else: :git
+  end
+
+  defp jj_change?(%{change_id: change_id}) when is_binary(change_id),
+    do: Regex.match?(~r/\A[k-z]{32}\z/i, change_id)
+
+  defp jj_change?(_commit), do: false
+
   @doc """
   Runs git in `dir` and returns stdout.
 
@@ -52,12 +66,13 @@ defmodule Pinha.Git do
     subcommand = List.first(args) || "git"
     args = ["-c", "core.quotePath=false" | args]
     stderr = stderr_path()
+    stdin = write_stdin(Keyword.get(opts, :input))
 
     Tracer.with_span "git #{subcommand}", %{attributes: span_attributes(dir, subcommand, args)} do
       try do
-        case System.cmd("/bin/sh", shell_args(Config.git_bin(), args),
+        case System.cmd("/bin/sh", shell_args(Config.git_bin(), args, stdin != nil),
                cd: dir,
-               env: [{@stderr_var, stderr} | env(opts)],
+               env: input_env(stdin) ++ [{@stderr_var, stderr} | env(opts)],
                stderr_to_stdout: false
              ) do
           {out, 0} ->
@@ -71,6 +86,7 @@ defmodule Pinha.Git do
         end
       after
         File.rm(stderr)
+        if stdin, do: File.rm(stdin)
       end
     end
   end
@@ -100,8 +116,22 @@ defmodule Pinha.Git do
   parameter, so nothing a client sends is ever parsed by the shell. The
   redirect target comes from the environment for the same reason.
   """
-  @spec shell_args(String.t(), [String.t()]) :: [String.t()]
-  def shell_args(bin, args), do: ["-c", ~s(exec "$@" 2>"$#{@stderr_var}"), "sh", bin | args]
+  @spec shell_args(String.t(), [String.t()], boolean()) :: [String.t()]
+  def shell_args(bin, args, stdin? \\ false) do
+    redirect = if stdin?, do: ~s( <"$#{@stdin_var}"), else: ""
+    ["-c", ~s(exec "$@"#{redirect} 2>"$#{@stderr_var}"), "sh", bin | args]
+  end
+
+  defp write_stdin(nil), do: nil
+
+  defp write_stdin(input) do
+    path = stderr_path()
+    File.write!(path, input)
+    path
+  end
+
+  defp input_env(nil), do: []
+  defp input_env(path), do: [{@stdin_var, path}]
 
   @doc "A path for one invocation's stderr, removed by whoever created it."
   @spec stderr_path() :: String.t()
@@ -160,18 +190,48 @@ defmodule Pinha.Git do
     ] ++ Keyword.get(opts, :env, [])
   end
 
-  @doc "Short name of the branch `HEAD` points at, or nil when HEAD is detached."
-  @spec default_branch(Repo.t()) :: String.t() | nil
-  def default_branch(%Repo{dir: dir}) do
+  @doc "Short name of the existing bookmark `HEAD` points at, or nil without one."
+  @spec default_bookmark(Repo.t()) :: String.t() | nil
+  def default_bookmark(%Repo{dir: dir} = repo) do
     case run(dir, ["symbolic-ref", "--short", "HEAD"]) do
-      {:ok, out} -> String.trim(out)
-      {:error, _} -> nil
+      {:ok, out} ->
+        name = String.trim(out)
+        if Enum.any?(bookmarks(repo), &(&1.name == name)), do: name
+
+      {:error, _} ->
+        nil
     end
   end
 
-  @doc "Branches with their tip commit id, tip date, and subject."
+  @doc "Compatibility name for `default_bookmark/1`."
+  @spec default_branch(Repo.t()) :: String.t() | nil
+  def default_branch(repo), do: default_bookmark(repo)
+
+  @doc "Jujutsu bookmarks (Git branches) with their tip commit id, date, and subject."
+  @spec bookmarks(Repo.t()) :: [map()]
+  def bookmarks(repo), do: refs(repo, "refs/heads")
+
+  @doc "Compatibility name for `bookmarks/1`."
   @spec branches(Repo.t()) :: [map()]
-  def branches(repo), do: refs(repo, "refs/heads")
+  def branches(repo), do: bookmarks(repo)
+
+  @doc "The revision used when a browse URL does not name one."
+  @spec default_revision(Repo.t()) :: map() | nil
+  def default_revision(repo) do
+    with name when is_binary(name) <- default_bookmark(repo),
+         bookmark when not is_nil(bookmark) <- Enum.find(bookmarks(repo), &(&1.name == name)) do
+      target(bookmark.id, :bookmark, bookmark.name, repo)
+    else
+      _ ->
+        case log_all(repo, limit: 1) do
+          [commit] ->
+            %{id: commit.id, kind: :commit, name: commit.id, change_id: commit.change_id}
+
+          [] ->
+            nil
+        end
+    end
+  end
 
   @doc "Tags with the tag object and, for annotated tags, the commit it peels to."
   @spec tags(Repo.t()) :: [map()]
@@ -207,7 +267,7 @@ defmodule Pinha.Git do
   @doc """
   Resolves a `:rev` from the URL.
 
-  Full commit id first, then branch, then tag, then Jujutsu change id (full or
+  Full commit id first, then bookmark, then tag, then Jujutsu change id (full or
   unique prefix). Short commit ids are not resolved. An ambiguous change-id
   prefix, or a change id shared by divergent commits, returns every match.
   """
@@ -215,7 +275,7 @@ defmodule Pinha.Git do
           {:ok, map()} | {:ambiguous, [map()]} | {:error, :not_found}
   def resolve(repo, rev) when is_binary(rev) do
     with :error <- resolve_commit_id(repo, rev),
-         :error <- resolve_branch(repo, rev),
+         :error <- resolve_bookmark(repo, rev),
          :error <- resolve_tag(repo, rev) do
       resolve_change_id(repo, rev)
     end
@@ -236,23 +296,25 @@ defmodule Pinha.Git do
     end
   end
 
-  defp resolve_branch(repo, rev) do
-    case Enum.find(branches(repo), &(&1.name == rev)) do
+  defp resolve_bookmark(repo, rev) do
+    case Enum.find(bookmarks(repo), &(&1.name == rev)) do
       nil ->
         :error
 
-      branch ->
-        {:ok,
-         %{id: branch.id, kind: :branch, name: rev, change_id: change_id_of(repo, branch.id)}}
+      bookmark ->
+        {:ok, target(bookmark.id, :bookmark, rev, repo)}
     end
   end
 
   defp resolve_tag(repo, rev) do
     case Enum.find(tags(repo), &(&1.name == rev)) do
       nil -> :error
-      tag -> {:ok, %{id: tag.id, kind: :tag, name: rev, change_id: change_id_of(repo, tag.id)}}
+      tag -> {:ok, target(tag.id, :tag, rev, repo)}
     end
   end
+
+  defp target(id, kind, name, repo),
+    do: %{id: id, kind: kind, name: name, change_id: change_id_of(repo, id)}
 
   defp resolve_change_id(repo, rev) do
     if change_id_prefix?(rev) do
@@ -267,7 +329,7 @@ defmodule Pinha.Git do
   end
 
   @doc """
-  Every commit whose `change-id` trailer starts with `prefix`.
+  Every commit whose native or legacy change ID starts with `prefix`.
 
   Divergent commits sharing one change id each appear on their own; there is
   no grouping in v0.1.
@@ -283,20 +345,15 @@ defmodule Pinha.Git do
            "--format=%H#{@us}%(trailers:key=change-id,valueonly,separator=#{@cid})#{@us}%s"
          ]) do
       {:ok, out} ->
-        out
-        |> String.split("\n", trim: true)
-        |> Enum.flat_map(fn line ->
-          case String.split(line, @us) do
-            [id, change_ids, subject] ->
-              change_ids
-              |> String.split(@cid, trim: true)
-              |> Enum.map(&String.trim/1)
-              |> Enum.filter(&String.starts_with?(String.downcase(&1), prefix))
-              |> Enum.map(&%{id: id, change_id: &1, subject: scrub(subject)})
+        summaries = parse_change_summaries(out)
+        native_ids = native_change_ids(dir, Enum.map(summaries, & &1.id))
 
-            _ ->
-              []
-          end
+        summaries
+        |> Enum.flat_map(fn summary ->
+          summary.id
+          |> change_ids_for(summary.trailer_ids, native_ids)
+          |> Enum.filter(&String.starts_with?(String.downcase(&1), prefix))
+          |> Enum.map(&%{id: summary.id, change_id: &1, subject: summary.subject})
         end)
         |> Enum.uniq_by(& &1.id)
 
@@ -305,32 +362,43 @@ defmodule Pinha.Git do
     end
   end
 
-  @doc "The `change-id` trailer of one commit, when the client wrote one."
+  @doc "The native or legacy Jujutsu change ID of one commit."
   @spec change_id_of(Repo.t(), String.t()) :: String.t() | nil
   def change_id_of(%Repo{dir: dir}, id) do
+    case native_change_ids(dir, [id]) do
+      %{^id => change_id} ->
+        change_id
+
+      %{} ->
+        trailer_change_id(dir, id)
+    end
+  end
+
+  defp trailer_change_id(dir, id) do
     case run(dir, [
            "show",
            "--no-patch",
            "--format=%(trailers:key=change-id,valueonly,separator=#{@cid})",
            id
          ]) do
-      {:ok, out} ->
-        case out
-             |> String.split(@cid, trim: true)
-             |> Enum.map(&String.trim/1)
-             |> Enum.reject(&(&1 == "")) do
-          [] -> nil
-          [first | _] -> first
-        end
-
-      {:error, _} ->
-        nil
+      {:ok, out} -> out |> trailer_ids() |> List.first()
+      {:error, _} -> nil
     end
   end
 
   @doc "Recent commits reachable from `rev`, newest first."
   @spec log(Repo.t(), String.t(), keyword()) :: [commit()]
   def log(%Repo{dir: dir}, rev, opts \\ []) do
+    log_revisions(dir, [rev], opts)
+  end
+
+  @doc "Recent commits reachable from every ref, newest first."
+  @spec log_all(Repo.t(), keyword()) :: [commit()]
+  def log_all(%Repo{dir: dir}, opts \\ []) do
+    log_revisions(dir, ["--all", "--date-order"], opts)
+  end
+
+  defp log_revisions(dir, revisions, opts) do
     limit = Keyword.get(opts, :limit, 20)
     skip = Keyword.get(opts, :skip, 0)
 
@@ -342,10 +410,10 @@ defmodule Pinha.Git do
         "--skip=#{skip}",
         "--format=" <> @commit_format
       ] ++
-        [rev] ++ path_args(Keyword.get(opts, :path))
+        revisions ++ path_args(Keyword.get(opts, :path))
 
     case run(dir, args) do
-      {:ok, out} -> parse_commits(out)
+      {:ok, out} -> out |> parse_commits() |> attach_native_change_ids(dir)
       {:error, _} -> []
     end
   end
@@ -354,13 +422,13 @@ defmodule Pinha.Git do
   defp path_args(""), do: []
   defp path_args(path), do: ["--", path]
 
-  @doc "One commit's metadata, parents, and `change-id` trailer."
+  @doc "One commit's metadata, parents, and Jujutsu change ID."
   @spec commit(Repo.t(), String.t()) :: {:ok, commit()} | {:error, :not_found}
   def commit(%Repo{dir: dir}, id) do
     case run(dir, ["show", "--no-patch", "--no-color", "--format=" <> @commit_format, id]) do
       {:ok, out} ->
         case parse_commits(out) do
-          [commit] -> {:ok, commit}
+          [commit] -> {:ok, commit |> List.wrap() |> attach_native_change_ids(dir) |> hd()}
           _ -> {:error, :not_found}
         end
 
@@ -540,6 +608,89 @@ defmodule Pinha.Git do
       body: scrub(String.trim_trailing(body))
     }
   end
+
+  defp attach_native_change_ids([], _dir), do: []
+
+  defp attach_native_change_ids(commits, dir) do
+    native_ids = native_change_ids(dir, Enum.map(commits, & &1.id))
+
+    Enum.map(commits, fn commit ->
+      %{commit | change_id: Map.get(native_ids, commit.id, commit.change_id)}
+    end)
+  end
+
+  defp native_change_ids(_dir, []), do: %{}
+
+  defp native_change_ids(dir, ids) do
+    input = Enum.map_join(ids, "", &(&1 <> "\n"))
+
+    case run(dir, ["cat-file", "--batch"], input: input) do
+      {:ok, out} -> parse_batch_change_ids(out, %{})
+      {:error, _} -> %{}
+    end
+  end
+
+  defp parse_batch_change_ids("", ids), do: ids
+
+  defp parse_batch_change_ids(out, ids) do
+    with [header, rest] <- :binary.split(out, "\n"),
+         [id, "commit", size] <- String.split(header, " "),
+         {size, ""} <- Integer.parse(size),
+         true <- byte_size(rest) > size,
+         <<content::binary-size(size), "\n", tail::binary>> <- rest do
+      ids =
+        case header_change_id(content) do
+          nil -> ids
+          change_id -> Map.put(ids, id, change_id)
+        end
+
+      parse_batch_change_ids(tail, ids)
+    else
+      _ -> ids
+    end
+  end
+
+  defp header_change_id(content) do
+    content
+    |> :binary.split("\n\n")
+    |> List.first()
+    |> String.split("\n")
+    |> Enum.find_value(fn
+      "change-id " <> change_id -> present(String.trim(change_id))
+      _ -> nil
+    end)
+  end
+
+  defp parse_change_summaries(out) do
+    out
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(fn line ->
+      case String.split(line, @us) do
+        [id, change_ids, subject] ->
+          [%{id: id, trailer_ids: trailer_ids(change_ids), subject: scrub(subject)}]
+
+        _ ->
+          []
+      end
+    end)
+  end
+
+  defp change_ids_for(id, trailer_ids, native_ids) do
+    case Map.fetch(native_ids, id) do
+      {:ok, change_id} -> [change_id]
+      :error -> trailer_ids
+    end
+  end
+
+  defp trailer_ids(value) do
+    value
+    |> String.split(@cid, trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp present(""), do: nil
+  defp present(value), do: value
 
   @doc "Short display form of a commit id."
   @spec short(String.t() | nil) :: String.t()

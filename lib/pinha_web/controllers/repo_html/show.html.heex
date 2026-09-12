@@ -1,37 +1,62 @@
 <Layouts.app current_user={assigns[:current_user]} title={@repo.name} up="/">
+  <:badge>
+    <.repository_kind_badge kind={@repo_kind} model={@repo.kind} />
+  </:badge>
+
   <div class="panes split">
     <section class="pane">
       <header class="pane-head">
-        <span>Refs</span>
-        <span class="count">{length(@branches) + length(@tags)}</span>
+        <span>
+          {if(jj_history?(@repo_kind), do: "Bookmarks & tags", else: "Branches & tags")}
+        </span>
+        <span class="count">{length(@bookmarks) + length(@tags)}</span>
       </header>
 
       <p :if={@repo.description} class="lede">{@repo.description}</p>
 
-      <table :if={@branches != []} class="table">
+      <table :if={@bookmarks != []} class="table">
         <thead>
           <tr>
-            <th>Branch</th>
-            <th>Head</th>
+            <th>{if(jj_history?(@repo_kind), do: "Bookmark", else: "Branch")}</th>
+            <th>Commit</th>
             <th>Updated</th>
           </tr>
         </thead>
         <tbody>
-          <tr :for={branch <- @branches} data-row>
+          <tr :for={bookmark <- @bookmarks} data-row>
             <td>
-              <a class="ref" href={tree_path(@repo.name, branch.name)}>{branch.name}</a>
-              <span :if={branch.name == @default_branch} class="tag">default</span>
+              <a
+                class={["ref", jj_history?(@repo_kind) && "bookmark-ref"]}
+                href={tree_path(@repo.name, bookmark.name)}
+              >
+                {bookmark.name}
+              </a>
+              <span
+                :if={bookmark.name == @default_bookmark}
+                class={["tag", jj_history?(@repo_kind) && "tag-muted"]}
+              >
+                {if(jj_history?(@repo_kind), do: "git HEAD", else: "default")}
+              </span>
             </td>
             <td>
-              <a class="id" href={commit_path(@repo.name, branch.id)}>{short(branch.id)}</a>
+              <a
+                class={["id", jj_history?(@repo_kind) && "id-secondary"]}
+                href={commit_path(@repo.name, bookmark.id)}
+              >
+                {short(bookmark.id)}
+              </a>
             </td>
-            <td class="right">{format_date(branch.date)}</td>
+            <td class="right">{format_date(bookmark.date)}</td>
           </tr>
         </tbody>
       </table>
 
-      <p :if={@branches == []} class="empty">
-        No branches. Push one: <code>git push origin main</code>.
+      <p :if={@bookmarks == []} class="empty">
+        <%= if jj_history?(@repo_kind) do %>
+          No bookmarks.
+        <% else %>
+          No branches. Push one: <code>git push origin main</code>.
+        <% end %>
       </p>
 
       <table :if={@tags != []} class="table">
@@ -45,28 +70,46 @@
         <tbody>
           <tr :for={tag <- @tags} data-row>
             <td><a class="ref" href={tree_path(@repo.name, tag.name)}>{tag.name}</a></td>
-            <td><a class="id" href={commit_path(@repo.name, tag.id)}>{short(tag.id)}</a></td>
+            <td>
+              <a
+                class={["id", jj_history?(@repo_kind) && "id-secondary"]}
+                href={commit_path(@repo.name, tag.id)}
+              >
+                {short(tag.id)}
+              </a>
+            </td>
             <td class="prose wide">{tag.subject}</td>
           </tr>
         </tbody>
       </table>
 
-      <p :if={@tags == []} class="empty">No tags. Push one: <code>git push origin v1</code>.</p>
+      <p :if={@tags == []} class="empty">
+        <%= if jj_history?(@repo_kind) do %>
+          No tags.
+        <% else %>
+          No tags. Push one: <code>git push origin v1</code>.
+        <% end %>
+      </p>
     </section>
 
     <section class="pane">
       <header class="pane-head">
-        <span>Recent commits</span>
+        <span>{if(jj_history?(@repo_kind), do: "Recent changes", else: "Recent commits")}</span>
         <span class="count">{length(@commits)}</span>
       </header>
 
-      <p :if={@commits == []} class="empty">No commits. Push one to see it here.</p>
+      <p :if={@commits == []} class="empty">
+        {if(jj_history?(@repo_kind),
+          do: "No changes have been published.",
+          else: "No commits have been pushed."
+        )}
+      </p>
 
       <table :if={@commits != []} class="table">
         <thead>
           <tr>
+            <th :if={jj_history?(@repo_kind)}>Change</th>
             <th>Commit</th>
-            <th>Change</th>
             <th>Subject</th>
             <th>Author</th>
             <th>Date</th>
@@ -74,10 +117,15 @@
         </thead>
         <tbody>
           <tr :for={commit <- @commits} data-row>
+            <td :if={jj_history?(@repo_kind)} class="change-id">{short(commit.change_id)}</td>
             <td>
-              <a class="id" href={commit_path(@repo.name, commit.id)}>{short(commit.id)}</a>
+              <a
+                class={["id", jj_history?(@repo_kind) && "id-secondary"]}
+                href={commit_path(@repo.name, commit.id)}
+              >
+                {short(commit.id)}
+              </a>
             </td>
-            <td class="change-id">{short(commit.change_id)}</td>
             <td class="prose wide">{commit.subject}</td>
             <td class="prose">{commit.author_name}</td>
             <td class="right">{format_date(commit.author_date)}</td>
@@ -121,7 +169,7 @@
       class="spacer"
       method="post"
       action={repo_path(@repo.name)}
-      onsubmit="return confirm('Delete this repository? This removes every ref and object.')"
+      onsubmit="return confirm('Delete this repository? This removes all history and metadata.')"
     >
       <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
       <input type="hidden" name="_method" value="delete" />

@@ -4,7 +4,8 @@ defmodule PinhaWeb.GitHttpController do
 
   `jj git clone`, `jj git fetch`, and `jj git push` use these same endpoints:
   the server only ever moves packs and refs, and never rewrites the commits a
-  client sends, so `change-id` trailers survive a round trip untouched.
+  client sends, so native `change-id` headers and legacy trailers survive a
+  round trip untouched.
 
   Reading is open to every authenticated user. Pushing asks
   `Pinha.Repos.writable_by?/2` first, and the refusal comes before git starts,

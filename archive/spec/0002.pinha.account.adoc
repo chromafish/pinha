@@ -17,7 +17,7 @@ We need a stable way to name people that survives changes to what they call them
 
 === User
 
-A person who may reach the server, identified by a username and an email address. A user also carries a `uid` (`u_` followed by 128 random bits in lowercase base32, minted once and never reused) and a `handle` (32 opaque bytes for WebAuthn), and may be an admin. External references store the `uid`, so changing a username, email, or passkey does not move them; see link:0001.pinha.git-hosting.adoc[Git hosting] for how repository ownership uses it.
+A person who may reach the server, identified by a username and an email address. A user also carries a `uid` (`u_` followed by 128 random bits in lowercase base32, minted once and never reused) and a `handle` (32 opaque bytes for WebAuthn), and may be an admin. External references store the `uid`, so changing a username, email, or passkey does not move them; see link:0001.pinha.git-hosting.adoc[Repository hosting] for how repository ownership uses it.
 
 == Mechanics
 

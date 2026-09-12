@@ -33,7 +33,11 @@ defmodule PinhaWeb.RepoController do
             conn
             |> put_status(:created)
             |> put_resp_header("location", PinhaWeb.Helpers.repo_path(repo.name))
-            |> json(%{name: repo.name, url: PinhaWeb.Helpers.clone_url(repo.name)})
+            |> json(%{
+              name: repo.name,
+              repository_model: Atom.to_string(repo.kind),
+              url: PinhaWeb.Helpers.clone_url(repo.name)
+            })
 
           _ ->
             redirect(conn, to: PinhaWeb.Helpers.repo_path(repo.name))
@@ -53,10 +57,11 @@ defmodule PinhaWeb.RepoController do
   def show(conn, %{"repo" => name}) do
     case Repos.fetch(name) do
       {:ok, repo} ->
-        branch = Git.default_branch(repo)
-        branches = Git.branches(repo)
+        default_bookmark = Git.default_bookmark(repo)
+        bookmarks = Git.bookmarks(repo)
         tags = Git.tags(repo)
-        commits = if branch, do: Git.log(repo, branch, limit: 20), else: []
+        commits = Git.log_all(repo, limit: 20)
+        repo_kind = presentation_kind(repo, Git.history_kind(commits))
         user = conn.assigns.current_user
 
         render(conn, :show,
@@ -64,10 +69,11 @@ defmodule PinhaWeb.RepoController do
           owner: owner(repo),
           may_write: Repos.writable_by?(repo, user),
           users: if(Repos.writable_by?(repo, user), do: Accounts.list_users(), else: []),
-          default_branch: branch,
-          branches: branches,
+          default_bookmark: default_bookmark,
+          bookmarks: bookmarks,
           tags: tags,
-          commits: commits
+          commits: commits,
+          repo_kind: repo_kind
         )
 
       {:error, :invalid_name} ->
@@ -156,27 +162,44 @@ defmodule PinhaWeb.RepoController do
   end
 
   defp entry(repo) do
-    branch = Git.default_branch(repo)
+    default_bookmark = Git.default_bookmark(repo)
+    commits = Git.log_all(repo, limit: 20)
+    repo_kind = presentation_kind(repo, Git.history_kind(commits))
 
     head =
-      case branch && Git.log(repo, branch, limit: 1) do
-        [commit] -> commit
-        _ -> nil
+      case {repo_kind, default_bookmark} do
+        {:git, bookmark} when is_binary(bookmark) ->
+          repo |> Git.log(bookmark, limit: 1) |> List.first()
+
+        _ ->
+          List.first(commits)
       end
 
-    %{repo: repo, default_branch: branch, head: head}
+    %{repo: repo, repo_kind: repo_kind, default_bookmark: default_bookmark, head: head}
   end
 
-  defp json_entry(%{repo: repo, default_branch: branch, head: head}) do
+  defp json_entry(%{
+         repo: repo,
+         repo_kind: repo_kind,
+         default_bookmark: bookmark,
+         head: head
+       }) do
     %{
       name: repo.name,
       description: repo.description,
-      default_branch: branch,
+      repository_model: Atom.to_string(repo.kind),
+      history_model: if(repo_kind == :git, do: "git", else: "jujutsu"),
+      default_bookmark: bookmark,
+      default_branch: bookmark,
       head: head && %{id: head.id, subject: head.subject, change_id: head.change_id},
       clone_url: PinhaWeb.Helpers.clone_url(repo.name),
       ssh_clone_url: PinhaWeb.Helpers.ssh_clone_url(repo.name)
     }
   end
+
+  defp presentation_kind(%{kind: :jj}, _history_kind), do: :jj
+  defp presentation_kind(%{kind: :git}, :jj), do: :jj_via_git
+  defp presentation_kind(%{kind: :git}, :git), do: :git
 
   defp fail(conn, status, message), do: PinhaWeb.Failure.send(conn, status, message)
 end
