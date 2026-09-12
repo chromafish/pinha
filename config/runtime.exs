@@ -131,6 +131,7 @@ if honeycomb_key do
   config :opentelemetry,
     span_processor: :batch,
     traces_exporter: :otlp,
+    sampler: {:parent_based, %{root: {Pinha.Tracing.Sampler, %{}}}},
     resource: %{service: %{name: System.get_env("OTEL_SERVICE_NAME", "pinha")}}
 
   config :opentelemetry_exporter,

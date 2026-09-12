@@ -10,6 +10,8 @@ defmodule PinhaWeb.Observability do
 
   alias Pinha.Widelog
 
+  require OpenTelemetry.Tracer, as: Tracer
+
   @doc false
   defmacro __before_compile__(_env) do
     quote do
@@ -31,15 +33,36 @@ defmodule PinhaWeb.Observability do
     end
   end
 
-  @doc "Writes the widelog line for a finished request."
+  @doc "Writes the widelog line for a finished request, and finishes its span."
   @spec finish(Plug.Conn.t(), integer()) :: Plug.Conn.t()
   def finish(conn, start_time) do
     duration_ms =
       System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond) / 1000
 
-    Widelog.write(line(conn, route(conn), duration_ms))
+    route = route(conn)
+    annotate(conn, route)
+    Widelog.write(line(conn, route, duration_ms))
 
     conn
+  end
+
+  @doc """
+  Puts the repo and the user on the request's span, and names an unmatched
+  request as such rather than leaving it the bare method.
+  """
+  @spec annotate(Plug.Conn.t(), String.t()) :: :ok
+  def annotate(conn, route) do
+    if route == "unmatched", do: Tracer.update_name("#{conn.method} unmatched")
+
+    Tracer.set_attributes(
+      [
+        {"repo", repo_name(conn)},
+        {"user", conn.assigns[:current_user] && conn.assigns.current_user.id}
+      ]
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    )
+
+    :ok
   end
 
   @doc "The widelog line as a map, before encoding."
