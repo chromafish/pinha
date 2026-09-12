@@ -22,8 +22,8 @@ defmodule PinhaWeb.AuthTest do
       assert %{"error" => _} = json_response(conn, 401)
     end
 
-    test "still reads the metrics, which carry no repository contents" do
-      assert build_conn() |> get("/metrics") |> response(200) =~ "repos_total"
+    test "does not find the metrics here; they are on their own listener" do
+      assert build_conn() |> get("/metrics") |> redirected_to() == "/signin"
     end
 
     test "still reaches the sign-in and sign-up pages" do

@@ -46,10 +46,6 @@ defmodule PinhaWeb.Router do
     plug :require_user_for_git
   end
 
-  scope "/", PinhaWeb do
-    get "/metrics", MetricsController, :index
-  end
-
   # The sign-in surface, the only part of the server a signed-out request
   # reaches.
   scope "/", PinhaWeb do

@@ -41,7 +41,7 @@ See link:0001.pinha.git-hosting.adoc[Git hosting].
 
 === Surface
 
-The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-in, sign-out, and settings. Every route other than the sign-in surface and `GET /metrics` requires an authenticated user. Reading a repository asks for nothing more; writing or deleting one asks for its owner or an admin, by the rule in link:0001.pinha.git-hosting.adoc[Git hosting]. The SSH listener admits only registered keys, and the user it resolves is subject to the same rule.
+The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-in, sign-out, and settings. Every route on the public endpoint other than the sign-in surface requires an authenticated user. Reading a repository asks for nothing more; writing or deleting one asks for its owner or an admin, by the rule in link:0001.pinha.git-hosting.adoc[Git hosting]. The SSH listener admits only registered keys, and the user it resolves is subject to the same rule.
 
 == Mechanics
 
@@ -89,7 +89,7 @@ A user with no usable passkey is recovered by the operator, who authorizes one r
 
 Users persist in Postgres, reached with `DATABASE_URL`. The intended deployment is Neon: TLS with chain verification against the OS trust store, and unnamed prepared statements when the URL names a pooled endpoint, because that endpoint is PgBouncer in transaction mode. Repositories stay on disk and are still backed up by copying the repo root; the database is backed up by Neon. A database outage stops sign-in and token verification, so it stops git transport too.
 
-Widelog lines carry the user ID when a request is authenticated. Metrics are unchanged, and `GET /metrics` stays unauthenticated.
+Widelog lines carry the user ID when a request is authenticated. Metrics are unchanged and stay unauthenticated, on the separate listener link:0001.pinha.git-hosting.adoc[Git hosting] binds for them: they are reached by address rather than by account, and no longer sit on the endpoint accounts reach.
 
 == Data Model
 

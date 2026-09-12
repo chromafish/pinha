@@ -1,7 +1,7 @@
 defmodule Pinha.Config do
   @moduledoc """
-  Operator configuration: the repo root, the public base URL, the SSH
-  listener, and the background process intervals.
+  Operator configuration: the repo root, the public base URL, the SSH and
+  metrics listeners, and the background process intervals.
   """
 
   @doc "Directory holding every `<name>.git` bare repository."
@@ -11,6 +11,15 @@ defmodule Pinha.Config do
   def base_url, do: Application.fetch_env!(:pinha, :base_url)
 
   def git_bin, do: Application.get_env(:pinha, :git_bin, "git")
+
+  @doc "Whether the metrics listener runs at all."
+  def metrics_enabled?, do: Application.get_env(:pinha, :metrics_enabled, true)
+
+  @doc "Port the metrics listener binds."
+  def metrics_port, do: Application.get_env(:pinha, :metrics_port, 9568)
+
+  @doc "Address the metrics listener binds. Loopback unless an operator says otherwise."
+  def metrics_listen_ip, do: Application.get_env(:pinha, :metrics_listen_ip, {127, 0, 0, 1})
 
   @doc "Whether the SSH listener runs at all."
   def ssh_enabled?, do: Application.get_env(:pinha, :ssh_enabled, true)

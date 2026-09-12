@@ -11,7 +11,7 @@ Git hosting. Minimal single-node service that hosts bare git repositories from a
 == Scope
 
 * Host repositories: create and delete repos over the web and directly on disk, browse branches, commit history, files at any revision, and diffs with Jujutsu change-ID resolution, and serve raw blobs and clone/fetch/push over smart HTTP and SSH, with every user reading every repo and only its owner writing.
-* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and Prometheus `GET /metrics`, filesystem backup via copy/snapshot, no quota in v0.1.
+* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and Prometheus `GET /metrics` on an operator-only listener, filesystem backup via copy/snapshot, no quota in v0.1.
 
 == Abstractions
 
@@ -29,7 +29,7 @@ Git commit with metadata, parents, full diff, and preserved trailers including `
 
 === Surface
 
-HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key config, JSON widelogs, Prometheus metrics, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
+HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key / metrics listener config, JSON widelogs, Prometheus metrics, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
 
 == Mechanics
 
@@ -91,7 +91,7 @@ The host key is an Ed25519 pair generated on first boot and written `0600` under
 
 === Operating
 
-Deployment is a single release plus the repo directory, configured with repo root path, HTTP listen address, public base URL, SSH port, SSH host key directory, and the SSH host advertised in clone URLs. Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, transport (`http` / `ssh`), method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs. An SSH exec emits one line of the same shape, with the repo, the git protocol, the git exit status, and bytes in each direction filling in for method, route, and user agent. Metrics are Prometheus text at `GET /metrics` on the same port with no auth:
+Deployment is a single release plus the repo directory, configured with repo root path, HTTP listen address, public base URL, SSH port, SSH host key directory, the SSH host advertised in clone URLs, and the metrics port and address. Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, transport (`http` / `ssh`), method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs. An SSH exec emits one line of the same shape, with the repo, the git protocol, the git exit status, and bytes in each direction filling in for method, route, and user agent. Metrics are Prometheus text at `GET /metrics`, on a listener of its own bound to loopback by default. It carries no authentication, so the address it binds is the access control, and a scraper elsewhere is given an address or a tunnel. That listener answers the one path and 404s everything else:
 
 * `http_requests_total{route,status}` — request count.
 * `http_request_duration_ms` — request latency.
@@ -102,4 +102,4 @@ Deployment is a single release plus the repo directory, configured with repo roo
 * `repos_total` — repo count.
 * `repo_disk_bytes{repo}` — disk usage (cached `du`, refreshed by a background process roughly every 60s).
 
-There is no alerting and no tracing in v0.1; the operator scrapes `/metrics` with anything Prometheus-compatible.
+There is no alerting and no tracing in v0.1; the operator scrapes the metrics port with anything Prometheus-compatible.

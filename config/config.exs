@@ -20,6 +20,10 @@ config :pinha,
   log_max_refs: 20,
   # The SSH listener. The host key directory defaults to `.pinha/ssh` under
   # the repo root, which the repo listing skips for not ending in `.git`.
+  # Metrics listen on their own port, bound to loopback: they name every
+  # repository and how busy it is, and carry no authentication.
+  metrics_enabled: true,
+  metrics_port: 9568,
   ssh_enabled: true,
   ssh_port: 2222,
   ssh_user: "git"

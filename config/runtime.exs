@@ -16,6 +16,23 @@ if base_url = System.get_env("PINHA_BASE_URL") do
   config :pinha, base_url: String.trim_trailing(base_url, "/")
 end
 
+if metrics_port = System.get_env("PINHA_METRICS_PORT") do
+  config :pinha, metrics_port: String.to_integer(metrics_port)
+end
+
+if metrics_enabled = System.get_env("PINHA_METRICS_ENABLED") do
+  config :pinha, metrics_enabled: metrics_enabled not in ["0", "false", "no"]
+end
+
+# Loopback unless the operator names something else, since the metrics
+# listener has no authentication of its own.
+if metrics_address = System.get_env("PINHA_METRICS_ADDRESS") do
+  case :inet.parse_address(String.to_charlist(metrics_address)) do
+    {:ok, ip} -> config :pinha, metrics_listen_ip: ip
+    {:error, _} -> raise "PINHA_METRICS_ADDRESS is not a valid IP address: #{metrics_address}"
+  end
+end
+
 if ssh_port = System.get_env("PINHA_SSH_PORT") do
   config :pinha, ssh_port: String.to_integer(ssh_port)
 end

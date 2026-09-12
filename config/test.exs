@@ -18,6 +18,8 @@ config :pinha,
   # The suite has no operator watching stdout, and minting a claim token at
   # boot would read the database outside the sandbox.
   claim_on_boot: false,
+  # The metrics listener gets a port of its own, next to the endpoint's.
+  metrics_port: 4003,
   # The suite asks the OS for a port so a running dev listener never collides
   # with it, and keeps host keys out of the repo roots tests throw away.
   ssh_port: 0,

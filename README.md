@@ -29,6 +29,9 @@ the admin account. Everyone after that needs an invite.
 | `PINHA_SSH_HOST` | Host written into SSH clone URLs | host of `PINHA_BASE_URL` |
 | `PINHA_SSH_HOST_KEY_DIR` | Directory holding the host key | `.pinha/ssh` under the repo root |
 | `PINHA_SSH_ENABLED` | Set to `false` to run without SSH | `true` |
+| `PINHA_METRICS_PORT` | Port the metrics listener binds | `9568` |
+| `PINHA_METRICS_ADDRESS` | IP address the metrics listener binds | `127.0.0.1` |
+| `PINHA_METRICS_ENABLED` | Set to `false` to run without metrics | `true` |
 | `SECRET_KEY_BASE` | Cookie signing secret (production only) | required in prod |
 | `DATABASE_URL` | Postgres holding the accounts | required in prod |
 | `POOL_SIZE` | Database connections | `5` |
@@ -165,7 +168,7 @@ response bytes, and user agent. An SSH session writes one line of the same
 shape per exec, carrying the peer address and git's exit status. Push lines
 also carry per-ref old and new tips, truncated after `:log_max_refs` refs.
 
-`GET /metrics` exposes, with no auth:
+Metrics available:
 
 - `http_requests_total{route,status}`
 - `http_request_duration_ms` (histogram)
