@@ -16,7 +16,6 @@ defmodule Pinha.Application do
         Pinha.Repos.Creator,
         Pinha.Ssh,
         Pinha.Maintenance,
-        PinhaWeb.Telemetry,
         {Phoenix.PubSub, name: Pinha.PubSub},
         PinhaWeb.Endpoint
       ]

@@ -2,7 +2,7 @@ defmodule PinhaWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :pinha
 
   # Wraps the compiled pipeline so every request, matched or not, produces one
-  # widelog line and one metrics observation once its body has been sent.
+  # widelog line once its body has been sent.
   @before_compile PinhaWeb.Observability
 
   @session_options [
