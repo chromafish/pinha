@@ -230,6 +230,25 @@ defmodule PinhaWeb.AuthTest do
     end
   end
 
+  # A ceremony is two requests, and the token the second one presents was
+  # rendered into the first one's HTML. Both halves of that have to outlive the
+  # browser being closed, or the sign-in page 403s its own POST.
+  describe "the sign-in page" do
+    test "is kept out of the back/forward cache, so its token is never stale" do
+      conn = build_conn() |> get("/signin")
+
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+    end
+
+    test "sets a session cookie that survives the browser closing" do
+      conn = build_conn() |> get("/signin")
+
+      assert [cookie] = get_resp_header(conn, "set-cookie")
+      assert cookie =~ "_pinha_key="
+      assert cookie =~ "max-age=5184000"
+    end
+  end
+
   describe "sign-in" do
     test "hands out a challenge that names no credentials, so any passkey answers" do
       conn =

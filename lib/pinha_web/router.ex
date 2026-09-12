@@ -3,13 +3,20 @@ defmodule PinhaWeb.Router do
 
   import PinhaWeb.UserAuth
 
+  # Every page carries a CSRF token minted for the session that rendered it,
+  # so a page that outlives its session is a page whose token is already
+  # refused. `no-store` is what keeps a suspended tab out of the back/forward
+  # cache: the default `max-age=0, must-revalidate` governs the HTTP cache
+  # only, and Safari restores a killed tab from the page cache without asking.
+  @no_store %{"cache-control" => "no-store"}
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_current_user
     plug :protect_from_forgery
     plug :put_root_layout, html: {PinhaWeb.Layouts, :root}
-    plug :put_secure_browser_headers
+    plug :put_secure_browser_headers, @no_store
   end
 
   pipeline :signed_in do
@@ -35,7 +42,7 @@ defmodule PinhaWeb.Router do
     plug :require_user_or_token
     plug :maybe_protect_from_forgery
     plug :put_root_layout, html: {PinhaWeb.Layouts, :root}
-    plug :put_secure_browser_headers
+    plug :put_secure_browser_headers, @no_store
   end
 
   # Git clients negotiate nothing and hold no cookie: these routes speak the

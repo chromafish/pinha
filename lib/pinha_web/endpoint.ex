@@ -5,11 +5,17 @@ defmodule PinhaWeb.Endpoint do
   # widelog line once its body has been sent.
   @before_compile PinhaWeb.Observability
 
+  # Without a `max_age` the cookie dies with the browser process, taking the
+  # CSRF token with it while the session row behind it stays live. Kept at the
+  # 60 days `Pinha.Accounts` gives a session, so the cookie and the row expire
+  # together; inlined rather than read from `Accounts` to keep the endpoint
+  # from taking a compile-time dependency on a context.
   @session_options [
     store: :cookie,
     key: "_pinha_key",
     signing_salt: "AUJtlgDg",
-    same_site: "Lax"
+    same_site: "Lax",
+    max_age: 60 * 24 * 60 * 60
   ]
 
   plug Plug.Static,
