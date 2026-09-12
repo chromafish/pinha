@@ -11,10 +11,14 @@ defmodule PinhaWeb.Plugs.GitAwareParsers do
 
   @impl true
   def call(conn, opts) do
-    if git_rpc?(conn.path_info), do: conn, else: Plug.Parsers.call(conn, opts)
+    if git_rpc?(conn), do: conn, else: Plug.Parsers.call(conn, opts)
   end
 
-  defp git_rpc?(path_info) do
-    match?([_repo, service] when service in ["git-upload-pack", "git-receive-pack"], path_info)
-  end
+  # The service is the last segment of a smart HTTP URL, under whatever scope
+  # the repository routes are mounted. Matching the whole path pinned this to a
+  # prefix, and the prefix has already moved once.
+  defp git_rpc?(%Plug.Conn{method: "POST", path_info: path_info}),
+    do: List.last(path_info) in ["git-upload-pack", "git-receive-pack"]
+
+  defp git_rpc?(%Plug.Conn{}), do: false
 end
