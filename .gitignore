@@ -32,3 +32,6 @@ pinha-*.tar
 /.env
 
 .neon
+
+# Release artifacts built by scripts/release.sh.
+/dist/

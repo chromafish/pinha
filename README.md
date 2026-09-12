@@ -1,15 +1,10 @@
 # pinha
 
-Git hosting: a Phoenix application that serves bare repositories from one
-directory on disk. It creates and deletes repositories, browses branches,
-commits, files, and diffs, resolves Jujutsu change ids, and serves clone,
-fetch, and push over both git's smart HTTP protocol and SSH.
-
-Git is the source of truth for repository contents: there is no index, and
-every page reads the bare repository through `git`. Postgres holds one thing,
-which git cannot: who may reach the server.
+A software forge
 
 ## Running it
+
+Setup a `.env` with `DATABASE_URL=<some-postgres-url>`
 
 ```sh
 mix deps.get
@@ -38,15 +33,6 @@ the admin account. Everyone after that needs an invite.
 | `DATABASE_URL` | Postgres holding the accounts | required in prod |
 | `POOL_SIZE` | Database connections | `5` |
 
-Deployment is a single release plus the repo directory:
-
-```sh
-MIX_ENV=prod mix release
-PHX_SERVER=true PINHA_REPO_ROOT=/srv/pinha PINHA_BASE_URL=https://git.example.com \
-  DATABASE_URL=postgresql://user:password@host/pinha \
-  SECRET_KEY_BASE=$(mix phx.gen.secret) _build/prod/rel/pinha/bin/pinha start
-```
-
 Serve it over HTTPS. Browsers refuse the passkey API outside a secure context,
 so sign-in only works over TLS, or on `localhost` while developing.
 
@@ -66,6 +52,51 @@ can run unprivileged.
 Backup and restore are filesystem copies: `rsync` or a volume snapshot of the
 repo root, plus whatever backs up the database. There is no quota, so a full
 disk fails the push.
+
+## Releasing
+
+Tag the revision, then package it:
+
+```sh
+jj tag set v0.1.0
+scripts/release.sh v0.1.0
+```
+
+The script checks the tag out and builds it. Three files are built in `dist/`
+(`--out DIR` to put them elsewhere): the tarball, its SHA-256, and a manifest
+naming the tag, the revision, the toolchain, the platform, and the checksum.
+
+A release carries the BEAM it was built against, so it runs on the OS and
+architecture it was built on and no other.
+
+### Deploying a release
+
+Migrate first, from a checkout of the tag being deployed, with `DATABASE_URL`
+naming the production database.
+
+```sh
+jj new v0.1.0
+DATABASE_URL=postgresql://user:password@host/pinha mix ecto.migrate
+```
+
+Then unpack the tarball on the server and start it:
+
+```sh
+tar -xzf pinha-0.1.0.tar.gz -C /opt/pinha
+PHX_SERVER=true PINHA_REPO_ROOT=/srv/pinha PINHA_BASE_URL=https://git.example.com \
+  DATABASE_URL=postgresql://user:password@host/pinha SECRET_KEY_BASE=... \
+  /opt/pinha/bin/pinha start
+```
+
+Going back a version takes the schema back with it. `mix ecto.rollback` runs
+each migration's `down` in reverse, newest first, from the same checkout:
+
+```sh
+DATABASE_URL=postgresql://user:password@host/pinha mix ecto.rollback --step 1
+```
+
+Run these with the default `MIX_ENV`: `MIX_ENV=prod` makes `config/runtime.exs`
+demand `SECRET_KEY_BASE` as well, which a migration has no use for.
 
 ## Repositories
 
@@ -110,19 +141,11 @@ git clone https://you@example.com:pinha_xxx@git.example.com/demo.git
 
 A credential helper stores it after the first prompt.
 
-SSH is the other way in, and the nicer one to push with: register a public key
-at `/settings`, pasted in `authorized_keys` form, and the agent answers for
-you.
+SSH is the other way in:
 
 ```sh
 git clone ssh://git@git.example.com:2222/demo.git
 ```
-
-Everyone connects as `git`, which is not an OS account: the key says who you
-are. Ed25519, ECDSA, and RSA of at least 2048 bits are accepted, a fingerprint
-belongs to one account, and deleting the row revokes it. A session may run
-`git-upload-pack` or `git-receive-pack` against one repository and nothing
-else: no shell, no terminal, no sftp, no forwarding.
 
 Everything but `/signin`, `/signup`, and `/metrics` requires a user. Lose every
 passkey and the way back is the release console, which authorizes one
@@ -132,66 +155,6 @@ to it:
 ```sh
 _build/prod/rel/pinha/bin/pinha rpc 'Pinha.Accounts.Registration.authorize("you@example.com")'
 ```
-
-## Access
-
-Every user reads every repository. Writing is narrower: pushing to a
-repository, deleting it, or handing it to someone else is the owner and
-admins, over either transport.
-
-A repository records its owner in its own git config, as a `pinha.owner`
-entry holding the opaque `uid` the server minted for that account. It lives in
-git so a repository restored from a filesystem copy carries its owner, and the
-`uid` outlives anything a user can change about themselves. Whoever creates a
-repository owns it; the repo page hands it to someone else by email, and so
-does the release console:
-
-```sh
-_build/prod/rel/pinha/bin/pinha rpc 'Pinha.Repos.set_owner("demo", "you@example.com")'
-```
-
-A repository with no owner, made by hand with `git init --bare` or left behind
-by a deleted account, stays readable by everyone and writable by admins until
-one assigns an owner.
-
-## Routes
-
-| Route | Purpose |
-| --- | --- |
-| `GET /` | Repo list: name, default-branch head, description |
-| `POST /repos` | Create a repository from a `name` |
-| `DELETE /:repo` | Delete a repository (owner or admin) |
-| `POST /:repo/owner` | Hand a repository to the user with this `email` |
-| `GET /:repo` | Summary: default branch, branches, tags, recent commits |
-| `GET /:repo/tree/:rev/*path` | File listing or blob at `:rev` |
-| `GET /:repo/raw/:rev/*path` | Raw blob bytes |
-| `GET /:repo/commit/:id` | Metadata, parents, and the full diff |
-| `GET /:repo/info/refs` | Ref advertisement |
-| `POST /:repo/git-upload-pack` | Clone and fetch |
-| `POST /:repo/git-receive-pack` | Push |
-| `GET /metrics` | Prometheus text |
-| `GET /signup`, `GET /signin` | Passkey registration and sign-in |
-| `DELETE /signout` | End the session |
-| `GET /settings` | Passkeys, API tokens, SSH keys, and invites for an admin |
-
-`GET /` and `POST /repos` answer JSON for clients that do not ask for HTML, and
-take an API token over HTTP Basic in place of a session.
-
-A `:rev` resolves as full commit id first, then branch, then tag, then
-Jujutsu change id (full or unique prefix). Short commit ids are not resolved,
-while change-id prefixes are; an ambiguous prefix lists every match, and
-divergent commits sharing one change id are shown individually.
-
-`:rev` is one path segment, so a branch whose name contains a slash is
-reachable by clone and push but not by the browse URLs. Blobs larger than 5 MB
-are linked rather than rendered; the raw route always serves the exact bytes.
-
-## Jujutsu
-
-`jj git clone`, `jj git fetch`, and `jj git push` use the same endpoints and
-the same SSH listener as git. The server never runs `jj` and never rewrites
-commits: it reads the `change-id` trailer clients write and preserves it
-verbatim.
 
 ## Operating
 
