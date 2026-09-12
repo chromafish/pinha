@@ -43,20 +43,26 @@ defmodule PinhaWeb.AuthController do
   def signup_challenge(conn, %{"email" => email, "label" => label} = params) do
     case registration_mode(email, params) do
       {:new, email, authorization} ->
-        handle = User.generate_handle()
-        {options, challenge} = WebAuthn.registration(handle, email)
+        username = params["username"] |> to_string()
 
-        conn
-        |> remember(
-          challenge,
-          [email: email, label: label(label), handle: handle, mode: "new"] ++
-            List.wrap(authorization)
-        )
-        |> json(%{publicKey: options})
+        with :ok <- validate_username(username) do
+          handle = User.generate_handle()
+          {options, challenge} = WebAuthn.registration(handle, username)
+
+          conn
+          |> remember(
+            challenge,
+            [username: username, email: email, label: label(label), handle: handle, mode: "new"] ++
+              List.wrap(authorization)
+          )
+          |> json(%{publicKey: options})
+        else
+          {:error, message} -> fail(conn, 422, message)
+        end
 
       {:recovery, user} ->
         exclude = Enum.map(Accounts.list_credentials(user), & &1.credential_id)
-        {options, challenge} = WebAuthn.registration(user.handle, user.email, exclude)
+        {options, challenge} = WebAuthn.registration(user.handle, user.username, exclude)
 
         conn
         |> remember(challenge, email: user.email, label: label(label), mode: "recovery")
@@ -67,7 +73,24 @@ defmodule PinhaWeb.AuthController do
     end
   end
 
-  def signup_challenge(conn, _params), do: fail(conn, 400, "email and label are required")
+  def signup_challenge(conn, _params),
+    do: fail(conn, 400, "username, email and label are required")
+
+  defp validate_username(username) do
+    cond do
+      String.trim(username) == "" ->
+        {:error, "username can't be blank"}
+
+      String.length(username) > 64 ->
+        {:error, "username is too long"}
+
+      match?({:ok, _}, Accounts.fetch_user_by_username(username)) ->
+        {:error, "username has already been taken"}
+
+      true ->
+        :ok
+    end
+  end
 
   def signup(conn, params) do
     with {:ok, challenge} <- recall(conn, "challenge"),
@@ -79,6 +102,7 @@ defmodule PinhaWeb.AuthController do
   end
 
   defp complete_signup(conn, "new", attrs) do
+    username = get_session(conn, "username")
     email = get_session(conn, "email")
     handle = get_session(conn, "handle")
     attrs = Map.put(attrs, :label, get_session(conn, "label"))
@@ -90,11 +114,17 @@ defmodule PinhaWeb.AuthController do
         # needs a fresh token from the console, which is the cheap direction
         # for the mistake to fall in.
         if Registration.consume_claim(token),
-          do: register(conn, %{email: email, handle: handle, admin: true}, attrs, []),
+          do:
+            register(
+              conn,
+              %{username: username, email: email, handle: handle, admin: true},
+              attrs,
+              []
+            ),
           else: fail(conn, 403, "that claim token has been spent")
 
       {:invite, invite} ->
-        register(conn, %{email: email, handle: handle}, attrs, invite: invite)
+        register(conn, %{username: username, email: email, handle: handle}, attrs, invite: invite)
 
       :error ->
         fail(conn, 403, "that registration is no longer authorized")

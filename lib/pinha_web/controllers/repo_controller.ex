@@ -79,13 +79,15 @@ defmodule PinhaWeb.RepoController do
   end
 
   def set_owner(conn, %{"repo" => name} = params) do
+    username = params["username"] || params["email"] || ""
+
     with {:ok, repo} <- Repos.fetch(name),
          true <- Repos.writable_by?(repo, conn.assigns.current_user),
-         {:ok, _repo} <- Repos.set_owner(name, to_string(params["email"])) do
+         {:ok, _repo} <- Repos.set_owner(name, to_string(username)) do
       redirect(conn, to: PinhaWeb.Helpers.repo_path(repo.name))
     else
       false -> fail(conn, 403, "only the owner or an admin hands over a repository")
-      {:error, :no_such_user} -> fail(conn, 404, "no user with that email")
+      {:error, :no_such_user} -> fail(conn, 404, "no user with that username")
       {:error, :invalid_name} -> fail(conn, 400, "invalid repository name")
       {:error, :not_found} -> fail(conn, 404, "no such repository")
       {:error, :invalid_repo} -> fail(conn, 500, "not a valid bare repository")

@@ -19,6 +19,31 @@ defmodule PinhaWeb.SettingsController do
     render_settings(conn, nil)
   end
 
+  def update_username(conn, params) do
+    user = conn.assigns.current_user
+    attrs = username_params(params)
+
+    case Accounts.update_username(user, attrs) do
+      {:ok, _user} ->
+        conn
+        |> put_flash(:info, "Username updated.")
+        |> redirect(to: "/settings")
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> render_settings(nil, nil, changeset)
+    end
+  end
+
+  defp username_params(params) do
+    if is_map(params["user"]) do
+      Map.take(params["user"], ["username", :username])
+    else
+      %{"username" => params["username"]}
+    end
+  end
+
   def create_invite(conn, params) do
     case Accounts.create_invite(conn.assigns.current_user, label(params["label"], "invite")) do
       {:ok, secret, _invite} -> render_settings(conn, nil, secret)
@@ -93,7 +118,7 @@ defmodule PinhaWeb.SettingsController do
   def passkey_challenge(conn, params) do
     user = conn.assigns.current_user
     exclude = Enum.map(Accounts.list_credentials(user), & &1.credential_id)
-    {options, challenge} = WebAuthn.registration(user.handle, user.email, exclude)
+    {options, challenge} = WebAuthn.registration(user.handle, user.username, exclude)
 
     conn
     |> put_session("challenge", challenge)
@@ -116,7 +141,7 @@ defmodule PinhaWeb.SettingsController do
     end
   end
 
-  defp render_settings(conn, new_token, new_invite \\ nil) do
+  defp render_settings(conn, new_token, new_invite \\ nil, username_changeset \\ nil) do
     user = conn.assigns.current_user
 
     render(conn, :show,
@@ -126,7 +151,8 @@ defmodule PinhaWeb.SettingsController do
       ssh_clone_example: PinhaWeb.Helpers.ssh_clone_url("repo"),
       invites: if(user.admin, do: Accounts.list_invites(), else: []),
       new_token: new_token,
-      new_invite: new_invite
+      new_invite: new_invite,
+      username_changeset: username_changeset || Accounts.change_username(user)
     )
   end
 

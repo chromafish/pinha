@@ -44,7 +44,7 @@ defmodule Pinha.SshTransportTest do
 
     test "the scp-style remote reaches the same repository", %{key: key, user: user} do
       seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
-      {:ok, _} = Pinha.Repos.set_owner("demo", user.email)
+      {:ok, _} = Pinha.Repos.set_owner("demo", user.username)
 
       work = tmp_dir!()
       remote = "ssh://git@127.0.0.1:#{Ssh.port()}/demo.git"
@@ -69,7 +69,7 @@ defmodule Pinha.SshTransportTest do
 
     test "someone else's repository reads but does not write", %{user: user} do
       seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
-      {:ok, _} = Pinha.Repos.set_owner("demo", user.email)
+      {:ok, _} = Pinha.Repos.set_owner("demo", user.username)
 
       # The test's own user is an admin, who may push anywhere, so the pusher
       # here is an ordinary account with a key of its own.

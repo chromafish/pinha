@@ -97,15 +97,21 @@
       </span>
       <span class="field">
         <span class="key">owner</span>
-        <span>{(@owner && @owner.email) || "unassigned"}</span>
+        <span>{(@owner && @owner.username) || "unassigned"}</span>
       </span>
     </div>
 
     <form :if={@may_write} method="post" action={repo_path(@repo.name) <> "/owner"}>
       <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
-      <input type="text" name="email" list="repo-owners" placeholder="hand to (email)" required />
+      <input
+        type="text"
+        name="username"
+        list="repo-owners"
+        placeholder="hand to (username)"
+        required
+      />
       <datalist id="repo-owners">
-        <option :for={user <- @users} value={user.email}></option>
+        <option :for={user <- @users} value={user.username}></option>
       </datalist>
       <button type="submit">Set owner</button>
     </form>

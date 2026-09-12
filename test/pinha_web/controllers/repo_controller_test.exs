@@ -118,7 +118,7 @@ defmodule PinhaWeb.RepoControllerTest do
       create_repo!("demo", admin)
       other = user_fixture()
 
-      conn = conn |> browser() |> post("/r/demo/owner", %{"email" => other.email})
+      conn = conn |> browser() |> post("/r/demo/owner", %{"username" => other.username})
 
       assert redirected_to(conn) == "/r/demo"
       assert {:ok, repo} = Repos.fetch("demo")
@@ -130,7 +130,7 @@ defmodule PinhaWeb.RepoControllerTest do
       create_repo!("demo", owner)
       conn = log_in_user(build_conn(), user_fixture()) |> browser()
 
-      assert conn |> post("/r/demo/owner", %{"email" => "whoever@example.com"}) |> response(403) =~
+      assert conn |> post("/r/demo/owner", %{"username" => "whoever"}) |> response(403) =~
                "only the owner or an admin"
 
       assert {:ok, repo} = Repos.fetch("demo")
@@ -142,8 +142,8 @@ defmodule PinhaWeb.RepoControllerTest do
 
       assert conn
              |> browser()
-             |> post("/r/demo/owner", %{"email" => "nobody@example.com"})
-             |> response(404) =~ "no user with that email"
+             |> post("/r/demo/owner", %{"username" => "nobody"})
+             |> response(404) =~ "no user with that username"
     end
   end
 
@@ -190,16 +190,17 @@ defmodule PinhaWeb.RepoControllerTest do
       create_repo!("demo", owner)
 
       html = log_in_user(build_conn(), owner) |> get("/r/demo") |> html_response(200)
-      assert html =~ owner.email
-      assert html =~ "hand to (email)"
+      assert html =~ owner.username
+      refute html =~ owner.email
+      assert html =~ "hand to (username)"
 
       stranger = log_in_user(build_conn(), user_fixture())
       html = stranger |> get("/r/demo") |> html_response(200)
-      assert html =~ owner.email
-      refute html =~ "hand to (email)"
+      assert html =~ owner.username
+      refute html =~ "hand to (username)"
 
       assert log_in_user(build_conn(), admin) |> get("/r/demo") |> html_response(200) =~
-               "hand to (email)"
+               "hand to (username)"
     end
   end
 end

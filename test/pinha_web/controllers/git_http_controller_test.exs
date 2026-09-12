@@ -139,7 +139,7 @@ defmodule PinhaWeb.GitHttpControllerTest do
   describe "push access" do
     test "an ordinary user reads a repository they do not own, and cannot push", %{user: admin} do
       seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
-      {:ok, _} = Repos.set_owner("demo", admin.email)
+      {:ok, _} = Repos.set_owner("demo", admin.username)
 
       ordinary = user_fixture()
       url = authenticated_url(ordinary, "/r/demo.git")

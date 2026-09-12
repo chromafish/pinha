@@ -73,12 +73,12 @@ defmodule Pinha.ReposOwnershipTest do
   end
 
   describe "set_owner/2" do
-    test "hands the repo over by email" do
+    test "hands the repo over by username" do
       first = user_fixture()
       second = user_fixture()
       {:ok, _} = Repos.create("demo", first)
 
-      assert {:ok, repo} = Repos.set_owner("demo", second.email)
+      assert {:ok, repo} = Repos.set_owner("demo", second.username)
       assert repo.owner_uid == second.uid
 
       {:ok, reread} = Repos.fetch("demo")
@@ -90,11 +90,11 @@ defmodule Pinha.ReposOwnershipTest do
     test "reports an email nobody registered, and a repo that is not there" do
       {:ok, _} = Repos.create("demo")
 
-      assert Repos.set_owner("demo", "nobody@example.com") == {:error, :no_such_user}
-      assert Repos.set_owner("missing", "nobody@example.com") == {:error, :not_found}
+      assert Repos.set_owner("demo", "nobody") == {:error, :no_such_user}
+      assert Repos.set_owner("missing", "nobody") == {:error, :not_found}
     end
 
-    test "survives the owner changing their email" do
+    test "survives the owner changing their username or email" do
       user = user_fixture()
       {:ok, repo} = Repos.create("demo", user)
 

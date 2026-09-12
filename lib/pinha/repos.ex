@@ -122,7 +122,7 @@ defmodule Pinha.Repos do
   def owner(%Repo{owner_uid: uid}), do: Accounts.fetch_user_by_uid(uid)
 
   @doc """
-  Hands a repo to the user with this email.
+  Hands a repo to the user with this username.
 
   Written with `git config`, so the repo on disk stays the record of who owns
   it. Called from the repo page and from the release console.
@@ -130,9 +130,9 @@ defmodule Pinha.Repos do
   @spec set_owner(String.t(), String.t()) ::
           {:ok, Repo.t()}
           | {:error, :invalid_name | :invalid_repo | :not_found | :no_such_user | :failed}
-  def set_owner(name, email) when is_binary(email) do
+  def set_owner(name, username) when is_binary(username) do
     with {:ok, repo} <- fetch(name),
-         {:ok, user} <- fetch_user(email) do
+         {:ok, user} <- fetch_user(username) do
       case Git.run(repo.dir, ["config", "pinha.owner", user.uid]) do
         {:ok, _} -> {:ok, %{repo | owner_uid: user.uid}}
         {:error, _} -> {:error, :failed}
@@ -140,8 +140,8 @@ defmodule Pinha.Repos do
     end
   end
 
-  defp fetch_user(email) do
-    case Accounts.fetch_user_by_email(email) do
+  defp fetch_user(username) do
+    case Accounts.fetch_user_by_username(username) do
       {:ok, user} -> {:ok, user}
       :error -> {:error, :no_such_user}
     end

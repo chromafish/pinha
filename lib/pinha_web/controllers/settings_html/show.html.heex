@@ -1,4 +1,53 @@
 <Layouts.app current_user={assigns[:current_user]} title="settings" up="/">
+  <div
+    id="account"
+    class="account-bar"
+    style="display:flex; align-items:center; gap: var(--sp-2); min-height: var(--head-h); padding: 0 var(--edge); border-bottom: 1px solid var(--border-default); background: var(--surface-sunken); flex-wrap: wrap;"
+  >
+    <form
+      id="update-username"
+      method="post"
+      action="/settings/username"
+      style="display:flex; align-items:center; gap: var(--sp-2);"
+    >
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <input type="hidden" name="_method" value="patch" />
+      <span style="font: var(--type-body); white-space: nowrap;">Signed in as</span>
+      <input
+        type="text"
+        id="username"
+        name="username"
+        value={Ecto.Changeset.get_field(@username_changeset, :username)}
+        required
+        autocomplete="off"
+        spellcheck="false"
+        style="width: 18ch; height: 28px; padding: 0 var(--sp-2); box-sizing: border-box; margin: 0; border: 1px solid var(--border-default); border-radius: var(--radius-1); vertical-align: middle;"
+      />
+      <span class="muted" style="white-space: nowrap;">· {@current_user.email}</span>
+      <button
+        type="submit"
+        style="height: 28px; padding: 0 var(--sp-3); display:inline-flex; align-items:center; justify-content:center; box-sizing: border-box; margin: 0; border: 1px solid var(--border-default); border-radius: var(--radius-1); line-height: 1;"
+      >
+        Save
+      </button>
+      <button
+        type="reset"
+        style="height: 28px; padding: 0 var(--sp-3); display:inline-flex; align-items:center; justify-content:center; box-sizing: border-box; margin: 0; border: 1px solid var(--border-default); border-radius: var(--radius-1); line-height: 1;"
+      >
+        Cancel
+      </button>
+      <p
+        :if={@username_changeset.action}
+        class="error"
+        style="flex-basis: 100%; margin: var(--sp-2) 0 0 0;"
+      >
+        {Enum.map_join(@username_changeset.errors, ", ", fn {field, {msg, _}} ->
+          "#{field} #{msg}"
+        end)}
+      </p>
+    </form>
+  </div>
+
   <div id="settings" class="settings">
     <section id="passkeys" class="settings-pane">
       <header class="pane-head">
@@ -222,7 +271,7 @@
             <td data-label="Minted">{format_date(to_string(invite.inserted_at))}</td>
             <td data-label="Expires">{format_date(to_string(invite.expires_at))}</td>
             <td data-label="Used by">
-              {if invite.consumed_by, do: invite.consumed_by.email, else: "unused"}
+              {if invite.consumed_by, do: invite.consumed_by.username, else: "unused"}
             </td>
             <td class="right" data-label="Action">
               <form

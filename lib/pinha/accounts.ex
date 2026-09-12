@@ -62,9 +62,43 @@ defmodule Pinha.Accounts do
 
   def fetch_user_by_uid(_), do: :error
 
-  @doc "Every user, by email, for the owner picker."
+  @doc "Every user, by username, for the owner picker."
   @spec list_users() :: [User.t()]
-  def list_users, do: Repo.all(from(u in User, order_by: u.email))
+  def list_users, do: Repo.all(from(u in User, order_by: u.username))
+
+  @doc "Fetches a user by username, case-sensitive, stored as supplied."
+  @spec fetch_user_by_username(String.t()) :: {:ok, User.t()} | :error
+  def fetch_user_by_username(username) when is_binary(username) do
+    case Repo.get_by(User, username: username) do
+      nil -> :error
+      user -> {:ok, user}
+    end
+  end
+
+  def fetch_user_by_username(_), do: :error
+
+  @doc "Builds a changeset for updating a username, for forms."
+  @spec change_username(User.t(), map()) :: Ecto.Changeset.t()
+  def change_username(%User{} = user, attrs \\ %{}) do
+    User.username_changeset(user, attrs)
+  end
+
+  @doc """
+  Updates a user's username.
+
+  Validates the same rules as signup: required, unique, at most 64 chars,
+  not blank after trim, stored as supplied and case-sensitive.
+  """
+  @spec update_username(User.t(), map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def update_username(%User{} = user, attrs) do
+    user
+    |> User.username_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc false
+  @spec update_user_username(User.t(), map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def update_user_username(%User{} = user, attrs), do: update_username(user, attrs)
 
   @doc "Fetches a user by email, however it was capitalized."
   @spec fetch_user_by_email(String.t()) :: {:ok, User.t()} | :error

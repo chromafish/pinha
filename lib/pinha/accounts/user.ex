@@ -36,6 +36,7 @@ defmodule Pinha.Accounts.User do
   @type t :: %__MODULE__{}
 
   schema "users" do
+    field(:username, :string)
     field(:email, :string)
     field(:uid, :string)
     field(:handle, :binary)
@@ -62,18 +63,39 @@ defmodule Pinha.Accounts.User do
   @doc "Changeset for a new user. The handle is supplied; the uid is generated."
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:email, :admin, :handle])
-    |> validate_required([:email, :handle])
+    |> cast(attrs, [:username, :email, :admin, :handle])
+    |> validate_required([:username, :email, :handle])
     |> validate_handle()
+    |> validate_username()
     |> update_change(:email, &(&1 |> String.trim() |> String.downcase()))
     |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+\.[^@,;\s]+$/,
       message: "must be an email address"
     )
     |> validate_length(:email, max: 160)
     |> put_change(:uid, generate_uid())
+    |> unique_constraint(:username)
     |> unique_constraint(:email)
     |> unique_constraint(:uid)
     |> unique_constraint(:handle)
+  end
+
+  @doc "Changeset for updating a user's username."
+  def username_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:username])
+    |> validate_required([:username])
+    |> validate_username()
+    |> unique_constraint(:username)
+  end
+
+  defp validate_username(changeset) do
+    changeset
+    |> validate_length(:username, max: 64)
+    |> validate_change(:username, fn :username, username ->
+      if String.trim(username) == "",
+        do: [username: "can't be blank"],
+        else: []
+    end)
   end
 
   defp validate_handle(changeset) do

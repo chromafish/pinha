@@ -13,7 +13,11 @@ defmodule Pinha.AccountsTest do
 
       assert {:ok, %{user: user}} =
                Accounts.register_user(
-                 %{email: "invited@example.com", handle: :crypto.strong_rand_bytes(32)},
+                 %{
+                   username: "invited",
+                   email: "invited@example.com",
+                   handle: :crypto.strong_rand_bytes(32)
+                 },
                  credential_attrs("their key"),
                  invite: invite
                )
@@ -32,14 +36,22 @@ defmodule Pinha.AccountsTest do
 
       assert {:ok, _} =
                Accounts.register_user(
-                 %{email: "first@example.com", handle: :crypto.strong_rand_bytes(32)},
+                 %{
+                   username: "first",
+                   email: "first@example.com",
+                   handle: :crypto.strong_rand_bytes(32)
+                 },
                  credential_attrs("first key"),
                  invite: invite
                )
 
       assert {:error, :invite, :invite_spent} =
                Accounts.register_user(
-                 %{email: "second@example.com", handle: :crypto.strong_rand_bytes(32)},
+                 %{
+                   username: "second",
+                   email: "second@example.com",
+                   handle: :crypto.strong_rand_bytes(32)
+                 },
                  credential_attrs("second key"),
                  invite: invite
                )
@@ -100,7 +112,11 @@ defmodule Pinha.AccountsTest do
 
       assert {:error, :user, changeset} =
                Accounts.register_user(
-                 %{email: String.upcase(user.email), handle: :crypto.strong_rand_bytes(32)},
+                 %{
+                   username: "other#{System.unique_integer([:positive])}",
+                   email: String.upcase(user.email),
+                   handle: :crypto.strong_rand_bytes(32)
+                 },
                  %{credential_id: "x", public_key: "y", label: "k"}
                )
 
@@ -115,7 +131,7 @@ defmodule Pinha.AccountsTest do
 
       assert {:ok, %{user: user}} =
                Accounts.register_user(
-                 %{email: "handled@example.com", handle: handle},
+                 %{username: "handled", email: "handled@example.com", handle: handle},
                  credential_attrs("their key")
                )
 
@@ -127,7 +143,7 @@ defmodule Pinha.AccountsTest do
     test "refuses a registration with no handle, or one of the wrong size" do
       assert {:error, :user, changeset} =
                Accounts.register_user(
-                 %{email: "nohandle@example.com"},
+                 %{username: "nohandle", email: "nohandle@example.com"},
                  credential_attrs("their key")
                )
 
@@ -135,7 +151,11 @@ defmodule Pinha.AccountsTest do
 
       assert {:error, :user, short} =
                Accounts.register_user(
-                 %{email: "short@example.com", handle: <<1, 2, 3>>},
+                 %{
+                   username: "short",
+                   email: "short@example.com",
+                   handle: <<1, 2, 3>>
+                 },
                  credential_attrs("their key")
                )
 

@@ -49,6 +49,7 @@ defmodule PinhaWeb.PasskeyCeremonyTest do
     invite = invite_fixture(admin)
 
     Ceremony.sign_up!(browser, page,
+      username: "newcomer",
       email: "newcomer@example.com",
       invite: invite,
       label: "virtual key"
@@ -71,7 +72,7 @@ defmodule PinhaWeb.PasskeyCeremonyTest do
 
     # The repository list names whoever is signed in, so this is the session
     # landing on the right account rather than merely existing.
-    assert Ceremony.text(browser, page) =~ "newcomer@example.com"
+    assert Ceremony.text(browser, page) =~ "newcomer"
 
     # Set by record_authentication/3, so the assertion verified and named a
     # user the database holds.
@@ -84,6 +85,7 @@ defmodule PinhaWeb.PasskeyCeremonyTest do
     invite = invite_fixture(admin)
 
     Ceremony.sign_up!(browser, page,
+      username: "handled",
       email: "handled@example.com",
       invite: invite,
       label: "virtual key"

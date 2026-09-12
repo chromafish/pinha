@@ -1,5 +1,5 @@
-= Authentication
-:revdate: 2026-09-11
+= Account authentication
+:revdate: 2026-09-12
 :status: Draft
 :toc:
 :sectnums:
@@ -10,14 +10,14 @@ We need auth. The web UI authenticates with passkeys; git clients cannot, so the
 
 == Scope
 
-* Users with passkey sign-up and sign-in, managing passkeys, invites, access tokens, and SSH keys from the UI.
+* Users with passkey sign-up and sign-in, managing passkeys, invites, access tokens, and SSH keys from the UI, plus claiming the server and recovery.
 * Authenticated git transport: clone, fetch, and push carry an access token over HTTP Basic, or an SSH key over the SSH listener.
 
 == Abstractions
 
 === User
 
-A person who may reach the server, identified by an email address. Email is the login name shown in the UI and the username git sends; no message is ever delivered to it in v0.1. A user also carries a handle: 32 opaque bytes that authenticators store as the WebAuthn user handle, distinct from the primary key so that what an authenticator holds reveals nothing about how many users exist. A user carries a `uid` as well, `u_` followed by 128 random bits in lowercase base32, minted once at registration and never reused: it is what the rest of the system stores when it needs to name a user outside the database, and repository ownership in link:0001.pinha.git-hosting.adoc[Git hosting] is the first thing to do so. It is separate from the handle, which stays the authenticators' business, and separate from the row ID, which counts users to anyone who can read one. An email or a passkey may change under it without moving anything that points at the user. A user is an admin or an ordinary user; admins mint invites, and the person who claims the server is the first admin.
+See link:0002.pinha.account.adoc[Account]. Authentication operates on that user: passkeys are bound to its WebAuthn `handle`, sessions prove a sign-in for it, and tokens and SSH keys are scoped to it.
 
 === Session
 
@@ -47,9 +47,9 @@ The routes in link:0001.pinha.git-hosting.adoc[Git hosting], plus sign-up, sign-
 
 === Sign up
 
-`GET /signup` collects an email and a passkey label. The server generates a challenge, stores it in the session, and returns it with the relying party ID taken from the host of the configured public base URL. The browser calls `navigator.credentials.create`, and the server verifies the attestation with `wax_`, stores the credential, and starts a session. A user may register a passkey per device, and settings registers further ones the same way. WebAuthn requires a secure context, so production must be served over HTTPS; `localhost` is exempt, which is what makes development work.
+`GET /signup` collects a username, an email, and a passkey label. The server validates the username per link:0002.pinha.account.adoc[Account] (required, unique, at most 64 characters, not blank) and the email, then generates a challenge, stores it in the session, and returns it with the relying party ID taken from the host of the configured public base URL. The browser calls `navigator.credentials.create`, and the server verifies the attestation with `wax_`, stores the credential, and starts a session. A user may register a passkey per device, and settings registers further ones the same way. WebAuthn requires a secure context, so production must be served over HTTPS; `localhost` is exempt, which is what makes development work.
 
-A registration is admitted by a token and nothing else. The first one takes the claim token below; every later one takes an invite pasted into the form next to the email and the label. The token is checked when the challenge is requested and spent in the transaction that stores the credential, so a challenge sitting in a browser cannot outlive its window and two people holding one invite cannot both register.
+A registration is admitted by a token and nothing else. The first one takes the claim token below; every later one takes an invite pasted into the form next to the username, email, and label. The token is checked when the challenge is requested and spent in the transaction that stores the credential, so a challenge sitting in a browser cannot outlive its window and two people holding one invite cannot both register. Blank or duplicate usernames are rejected with a useful error before a challenge is issued, and the username is stored as supplied.
 
 === Claiming the server
 
@@ -59,7 +59,7 @@ The browser carries the token to the challenge request, which compares it agains
 
 === Invites
 
-An admin mints an invite at `/settings`, rendered once as `pinha_invite_<32 bytes>` and stored as a hash. Handing it over is the admin's problem, by whatever channel they already have with the person, because the server delivers no mail. An invite expires seven days after it is minted and admits one registration. Settings lists what is outstanding, who minted it, and whether it was used; deleting the row revokes it.
+An admin mints an invite at `/settings`, rendered once as `pinha_invite_<32 bytes>` and stored as a hash. Handing it over is the admin's problem, by whatever channel they already have with the person, because the server delivers no mail. An invite expires seven days after it is minted and admits one registration. Settings lists what is outstanding, who minted it, and whether it was used — showing the consuming account's username in `Used by`, never its email — and deleting the row revokes it.
 
 Sign-up looks the invite up by hash, which is the same single indexed read as an access token, refuses one that is expired or already spent, and records it in the session with the challenge. The registration inserts the user, stores the credential, and marks the invite consumed in one transaction, so a ceremony that fails leaves the invite usable and one that succeeds cannot be replayed.
 
@@ -73,7 +73,7 @@ A successful ceremony mints 32 random bytes, stores the SHA-256, and writes the 
 
 === Git transport
 
-`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user email as the username, an access token as the password. The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token. SSH carries no Basic credentials: the connection is already authenticated by key before any git command runs, which is why `git@<host>:<name>.git` pushes without a prompt. Either transport, once it knows the user, checks the repository's owner before starting git; authentication says who is asking, and link:0001.pinha.git-hosting.adoc[Git hosting] says what they may do.
+`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, and `POST /:repo/git-receive-pack` accept HTTP Basic credentials: the user's email as the HTTP username and an access token as the password (the public username is not used for git transport). The token is looked up by SHA-256 hash, which is a single indexed read, and an expired token is refused. `last_used_at` is written at most once an hour per token, so a clone does not turn into a write per request. A request with no credentials gets `401` with a `WWW-Authenticate: Basic` challenge, which is what makes git prompt and what lets credential helpers store the token. SSH carries no Basic credentials: the connection is already authenticated by key before any git command runs, which is why `git@<host>:<name>.git` pushes without a prompt. Either transport, once it knows the user, checks the repository's owner before starting git; authentication says who is asking, and link:0001.pinha.git-hosting.adoc[Git hosting] says what they may do.
 
 === SSH keys
 
@@ -93,8 +93,6 @@ Widelog lines and trace spans carry the user ID when a request is authenticated,
 
 == Data Model
 
-`users`: `email` (unique), `uid` (unique), `handle` (unique, 32 bytes), `admin`, timestamps.
-
 `user_credentials`: `user_id`, `credential_id` (unique), `public_key`, `aaguid`, `sign_count`, `label`, `last_used_at`, inserted timestamp.
 
 `user_sessions`: `user_id`, `token_hash` (unique), `last_used_at`, inserted timestamp.
@@ -105,4 +103,4 @@ Widelog lines and trace spans carry the user ID when a request is authenticated,
 
 `user_invites`: `token_hash` (unique), `label`, `created_by_user_id`, `expires_at`, `consumed_at`, `consumed_by_user_id`, inserted timestamp.
 
-Every table cascades on user deletion.
+Every table cascades on user deletion. The `users` table itself is defined in link:0002.pinha.account.adoc[Account].

@@ -1,0 +1,38 @@
+= Account
+:revdate: 2026-09-12
+:status: Draft
+:toc:
+:sectnums:
+
+== Context
+
+We need a stable way to name people that survives changes to what they call themselves or how they authenticate. Username is what the UI shows, email is what git sends and recovery uses, and an opaque stable identifier is what the system stores when it needs to name a user outside the database.
+
+== Scope
+
+* User identity with username, email, `uid`, WebAuthn `handle`, and admin flag.
+* Username display and update.
+
+== Abstractions
+
+=== User
+
+A person who may reach the server, identified by a username and an email address. A user also carries a `uid` (`u_` followed by 128 random bits in lowercase base32, minted once and never reused) and a `handle` (32 opaque bytes for WebAuthn), and may be an admin. External references store the `uid`, so changing a username, email, or passkey does not move them; see link:0001.pinha.git-hosting.adoc[Git hosting] for how repository ownership uses it.
+
+== Mechanics
+
+=== Username validation
+
+Usernames are required, unique, at most 64 characters, not blank after trim, stored as supplied, and unique case-sensitively. Uniqueness is checked atomically; a concurrent creation for the same username serializes and the loser gets a useful error. On sign-up the check runs before a WebAuthn challenge is issued (see link:0003.pinha.account.authentication.adoc[Account authentication]).
+
+=== Username display
+
+Wherever the UI names a user — header, repository owner, invites `Used by` — it shows the username. Email is not shown as public name; it is the HTTP Basic username for git and the key for recovery.
+
+=== Updating usernames
+
+An authenticated user may change their own username from settings. The same validation as above applies; no WebAuthn ceremony is required. On success the new username appears on the next request and existing `uid` references remain unchanged.
+
+== Data Model
+
+`users`: `username` (unique, at most 64 characters, stored as supplied), `email` (unique), `uid` (unique), `handle` (unique, 32 bytes), `admin`, timestamps.

@@ -33,7 +33,7 @@ defmodule PinhaWeb.Layouts do
 
         <span :if={@count} class="reading">{@count}</span>
 
-        <a :if={@current_user} class="who" href="/settings">{@current_user.email}</a>
+        <a :if={@current_user} class="who" href="/settings">{@current_user.username}</a>
       </header>
 
       <div class="region">

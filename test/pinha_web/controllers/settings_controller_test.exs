@@ -8,7 +8,7 @@ defmodule PinhaWeb.SettingsControllerTest do
       html = conn |> get("/settings") |> html_response(200)
 
       assert html =~ "test key"
-      assert html =~ user.email
+      assert html =~ user.username
       assert html =~ "No tokens."
       assert html =~ ~s(id="settings" class="settings")
       assert html =~ ~s(class="table settings-table")

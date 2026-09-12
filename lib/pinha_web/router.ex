@@ -13,6 +13,7 @@ defmodule PinhaWeb.Router do
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
+    plug :fetch_flash
     plug :fetch_current_user
     plug :protect_from_forgery
     plug :put_root_layout, html: {PinhaWeb.Layouts, :root}
@@ -82,6 +83,9 @@ defmodule PinhaWeb.Router do
     pipe_through [:browser, :signed_in]
 
     get "/settings", SettingsController, :show
+    patch "/settings/username", SettingsController, :update_username
+    put "/settings/username", SettingsController, :update_username
+    post "/settings/username", SettingsController, :update_username
     post "/settings/tokens", SettingsController, :create_token
     post "/settings/ssh-keys", SettingsController, :create_ssh_key
     delete "/settings/ssh-keys/:id", SettingsController, :delete_ssh_key

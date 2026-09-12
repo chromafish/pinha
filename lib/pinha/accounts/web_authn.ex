@@ -17,14 +17,14 @@ defmodule Pinha.Accounts.WebAuthn do
 
   @doc "A challenge for registering a passkey, with the options the browser expects."
   @spec registration(binary(), String.t(), [binary()]) :: {map(), Wax.Challenge.t()}
-  def registration(handle, email, exclude \\ []) do
+  def registration(handle, username, exclude \\ []) do
     challenge =
       Wax.new_registration_challenge(origin: origin(), rp_id: :auto, attestation: "none")
 
     options = %{
       challenge: encode(challenge.bytes),
       rp: %{id: challenge.rp_id, name: @rp_name},
-      user: %{id: encode(handle), name: email, displayName: email},
+      user: %{id: encode(handle), name: username, displayName: username},
       pubKeyCredParams: Enum.map(@algorithms, &%{type: "public-key", alg: &1}),
       timeout: challenge.timeout * 1000,
       attestation: "none",

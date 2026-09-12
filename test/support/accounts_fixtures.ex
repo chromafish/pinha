@@ -13,10 +13,12 @@ defmodule Pinha.AccountsFixtures do
   @doc "A user holding one passkey. Pass `admin: true` for one who mints invites."
   def user_fixture(attrs \\ %{}) do
     email = Map.get(attrs, :email, "tester#{System.unique_integer([:positive])}@example.com")
+    username = Map.get(attrs, :username, "tester#{System.unique_integer([:positive])}")
 
     {:ok, %{user: user}} =
       Accounts.register_user(
         %{
+          username: username,
           email: email,
           handle: :crypto.strong_rand_bytes(32),
           admin: Map.get(attrs, :admin, false)

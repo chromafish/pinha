@@ -137,12 +137,13 @@ defmodule PinhaWeb.AuthTest do
         build_conn()
         |> put_req_header("accept", "application/json")
         |> post("/signup/challenge", %{
+          "username" => "invited",
           "email" => "invited@example.com",
           "label" => "k",
           "invite" => secret
         })
 
-      assert %{"publicKey" => %{"user" => %{"name" => "invited@example.com"}}} =
+      assert %{"publicKey" => %{"user" => %{"name" => "invited"}}} =
                json_response(conn, 200)
     end
 
@@ -152,7 +153,7 @@ defmodule PinhaWeb.AuthTest do
 
       {:ok, _} =
         Accounts.register_user(
-          %{email: "first@example.com", handle: :crypto.strong_rand_bytes(32)},
+          %{username: "first", email: "first@example.com", handle: :crypto.strong_rand_bytes(32)},
           credential_attrs("first key"),
           invite: invite
         )
@@ -161,6 +162,7 @@ defmodule PinhaWeb.AuthTest do
         build_conn()
         |> put_req_header("accept", "application/json")
         |> post("/signup/challenge", %{
+          "username" => "second",
           "email" => "second@example.com",
           "label" => "k",
           "invite" => secret
@@ -180,7 +182,7 @@ defmodule PinhaWeb.AuthTest do
       assert %{"publicKey" => %{"challenge" => _, "user" => %{"name" => name}}} =
                json_response(conn, 200)
 
-      assert name == user.email
+      assert name == user.username
     end
 
     test "asks a fresh server for the claim token, and refuses the wrong one" do
@@ -194,6 +196,7 @@ defmodule PinhaWeb.AuthTest do
         build_conn()
         |> put_req_header("accept", "application/json")
         |> post("/signup/challenge", %{
+          "username" => "operator",
           "email" => "operator@example.com",
           "label" => "k",
           "claim" => "not the token"
@@ -211,12 +214,13 @@ defmodule PinhaWeb.AuthTest do
         build_conn()
         |> put_req_header("accept", "application/json")
         |> post("/signup/challenge", %{
+          "username" => "operator",
           "email" => "operator@example.com",
           "label" => "k",
           "claim" => token
         })
 
-      assert %{"publicKey" => %{"user" => %{"name" => "operator@example.com"}}} =
+      assert %{"publicKey" => %{"user" => %{"name" => "operator"}}} =
                json_response(conn, 200)
     end
 
