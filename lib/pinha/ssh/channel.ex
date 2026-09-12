@@ -156,6 +156,8 @@ defmodule Pinha.Ssh.Channel do
         attributes: [{"transport", "ssh"}, {"peer", state.peer || ""}]
       })
 
+    Tracer.set_current_span(span)
+
     state = %{state | started_at: System.monotonic_time(), span: span}
 
     with {:ok, subcommand, name} <- parse(command),
