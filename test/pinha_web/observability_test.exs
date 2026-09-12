@@ -1,7 +1,6 @@
 defmodule PinhaWeb.ObservabilityTest do
   use PinhaWeb.ConnCase, async: false
 
-  alias Pinha.Metrics
   alias PinhaWeb.Observability
 
   test "the widelog line carries the canonical request fields", %{conn: conn} do
@@ -25,7 +24,6 @@ defmodule PinhaWeb.ObservabilityTest do
 
   test "git RPC lines name the protocol and the pushed refs" do
     create_repo!("demo")
-    before = counter(~s(git_ref_updates_total{repo="demo"}))
     new = String.duplicate("a", 40)
     old = String.duplicate("0", 40)
 
@@ -55,29 +53,10 @@ defmodule PinhaWeb.ObservabilityTest do
     assert line.refs_total == 2
     assert line.refs_truncated == 0
     assert line.req_bytes == byte_size(body)
-    assert counter(~s(git_ref_updates_total{repo="demo"})) == before + 2
-  end
-
-  # Metric counters live for the whole test run, so assertions compare deltas.
-  defp counter(series) do
-    case Regex.run(~r/^#{Regex.escape(series)} (\d+)$/m, IO.iodata_to_binary(Metrics.render())) do
-      [_, value] -> String.to_integer(value)
-      nil -> 0
-    end
   end
 
   test "the route is reported even when nothing matched", %{conn: conn} do
     conn = get(conn, "/demo/nope/deeper")
     assert Observability.route(conn) == "unmatched"
-  end
-
-  test "request metrics are recorded per route and status", %{conn: conn} do
-    create_repo!("demo")
-    get(conn, "/demo")
-
-    metrics = IO.iodata_to_binary(Metrics.render())
-    assert metrics =~ ~s(http_requests_total{route="/:repo",status="200"})
-    assert metrics =~ "http_request_duration_ms_bucket{le=\"+Inf\"}"
-    assert metrics =~ "http_request_duration_ms_count"
   end
 end

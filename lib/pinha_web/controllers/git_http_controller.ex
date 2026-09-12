@@ -16,7 +16,6 @@ defmodule PinhaWeb.GitHttpController do
   alias Pinha.Git.PktLine
   alias Pinha.Git.Transport
   alias Pinha.Maintenance
-  alias Pinha.Metrics
   alias Pinha.Repos
   alias PinhaWeb.Observability
 
@@ -98,7 +97,7 @@ defmodule PinhaWeb.GitHttpController do
     try do
       case stash_body(conn, input) do
         {:ok, conn} ->
-          conn = conn |> record(repo, service, input) |> stream(repo, service, input)
+          conn = conn |> record(service, input) |> stream(repo, service, input)
           if service == "git-receive-pack", do: Maintenance.after_receive(repo)
           conn
 
@@ -141,22 +140,17 @@ defmodule PinhaWeb.GitHttpController do
     end
   end
 
-  # Counts the request and, for a push, remembers the ref updates it asks for
-  # so the widelog line and the metrics can carry them.
-  defp record(conn, repo, "git-upload-pack", _input) do
-    Metrics.inc("git_fetches_total", [{"repo", repo.name}, {"transport", "http"}])
-    conn
-  end
+  # For a push, remembers the ref updates it asks for so the widelog line and
+  # the span can carry them.
+  defp record(conn, "git-upload-pack", _input), do: conn
 
-  defp record(conn, repo, "git-receive-pack", input) do
+  defp record(conn, "git-receive-pack", input) do
     commands =
       case File.open(input, [:read, :binary, :raw], &:file.read(&1, @command_scan_bytes)) do
         {:ok, {:ok, head}} -> PktLine.parse_commands(head)
         _ -> []
       end
 
-    Metrics.inc("git_pushes_total", [{"repo", repo.name}, {"transport", "http"}])
-    Metrics.inc("git_ref_updates_total", [{"repo", repo.name}], length(commands))
     put_private(conn, :pinha_refs, commands)
   end
 

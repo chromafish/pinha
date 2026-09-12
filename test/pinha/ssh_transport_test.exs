@@ -9,7 +9,6 @@ defmodule Pinha.SshTransportTest do
   use PinhaWeb.ConnCase, async: false
 
   alias Pinha.Accounts
-  alias Pinha.Metrics
   alias Pinha.Ssh
 
   @change_id "kmpsxwvrlouvzysnkulnnnttrrytwstn"
@@ -52,27 +51,6 @@ defmodule Pinha.SshTransportTest do
       ssh_git!(key, work, ["clone", "--quiet", remote, Path.join(work, "clone")])
 
       assert File.read!(Path.join([work, "clone", "a.txt"])) == "a\n"
-    end
-
-    test "counts the fetch and the push against the ssh transport", %{
-      key: key,
-      url: url,
-      user: user
-    } do
-      create_repo!("demo", user)
-      work = tmp_dir!()
-      clone = Path.join(work, "one")
-
-      ssh_git!(key, work, ["clone", "--quiet", url, clone])
-      File.write!(Path.join(clone, "a.txt"), "a\n")
-      ssh_git!(key, clone, ["add", "-A"])
-      ssh_git!(key, clone, ["commit", "--quiet", "-m", "first"])
-      ssh_git!(key, clone, ["push", "--quiet", "origin", "main"])
-
-      metrics = IO.iodata_to_binary(Metrics.render())
-
-      assert metrics =~ ~r/git_fetches_total\{repo="demo",transport="ssh"\} [1-9]/
-      assert metrics =~ ~r/git_pushes_total\{repo="demo",transport="ssh"\} [1-9]/
     end
   end
 

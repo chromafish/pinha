@@ -16,23 +16,6 @@ if base_url = System.get_env("PINHA_BASE_URL") do
   config :pinha, base_url: String.trim_trailing(base_url, "/")
 end
 
-if metrics_port = System.get_env("PINHA_METRICS_PORT") do
-  config :pinha, metrics_port: String.to_integer(metrics_port)
-end
-
-if metrics_enabled = System.get_env("PINHA_METRICS_ENABLED") do
-  config :pinha, metrics_enabled: metrics_enabled not in ["0", "false", "no"]
-end
-
-# Loopback unless the operator names something else, since the metrics
-# listener has no authentication of its own.
-if metrics_address = System.get_env("PINHA_METRICS_ADDRESS") do
-  case :inet.parse_address(String.to_charlist(metrics_address)) do
-    {:ok, ip} -> config :pinha, metrics_listen_ip: ip
-    {:error, _} -> raise "PINHA_METRICS_ADDRESS is not a valid IP address: #{metrics_address}"
-  end
-end
-
 if ssh_port = System.get_env("PINHA_SSH_PORT") do
   config :pinha, ssh_port: String.to_integer(ssh_port)
 end
@@ -135,6 +118,27 @@ if database_url do
       end
 
   config :pinha, Pinha.Repo, repo_options
+end
+
+# Traces go to Honeycomb when a key is present. Without one the exporter is
+# switched off, which is what a development machine and the suite want: the
+# spans are still created, they just go nowhere.
+# The suite never exports, whatever is in the environment: a test run has no
+# business landing in the dataset.
+honeycomb_key = if config_env() == :test, do: nil, else: System.get_env("HONEYCOMB_API_KEY")
+
+if honeycomb_key do
+  config :opentelemetry,
+    span_processor: :batch,
+    traces_exporter: :otlp,
+    resource: %{service: %{name: System.get_env("OTEL_SERVICE_NAME", "pinha")}}
+
+  config :opentelemetry_exporter,
+    otlp_protocol: :http_protobuf,
+    otlp_endpoint: System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.honeycomb.io"),
+    otlp_headers: [{"x-honeycomb-team", honeycomb_key}]
+else
+  config :opentelemetry, traces_exporter: :none
 end
 
 if config_env() == :prod do

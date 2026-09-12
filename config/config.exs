@@ -12,18 +12,12 @@ config :pinha,
   # Public base URL advertised in the UI for clone commands.
   base_url: "http://localhost:4000",
   git_bin: "git",
-  # How often the background process refreshes cached `du` output.
-  disk_usage_interval_ms: 60_000,
   # How often the background process prunes and repacks every repo.
   maintenance_interval_ms: 6 * 60 * 60 * 1000,
   # Number of per-ref old/new tips carried in a push widelog line.
   log_max_refs: 20,
   # The SSH listener. The host key directory defaults to `.pinha/ssh` under
   # the repo root, which the repo listing skips for not ending in `.git`.
-  # Metrics listen on their own port, bound to loopback: they name every
-  # repository and how busy it is, and carry no authentication.
-  metrics_enabled: true,
-  metrics_port: 9568,
   ssh_enabled: true,
   ssh_port: 2222,
   ssh_user: "git"

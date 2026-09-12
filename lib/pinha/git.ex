@@ -12,6 +12,8 @@ defmodule Pinha.Git do
   alias Pinha.Repos.Repo
   alias Pinha.Widelog
 
+  require OpenTelemetry.Tracer, as: Tracer
+
   @us <<0x1F>>
   @rs <<0x1E>>
   @cid <<0x1D>>
@@ -47,25 +49,48 @@ defmodule Pinha.Git do
   """
   @spec run(String.t(), [String.t()], keyword()) :: {:ok, binary()} | {:error, {:exit, integer()}}
   def run(dir, args, opts \\ []) do
+    subcommand = List.first(args) || "git"
     args = ["-c", "core.quotePath=false" | args]
     stderr = stderr_path()
 
-    try do
-      case System.cmd("/bin/sh", shell_args(Config.git_bin(), args),
-             cd: dir,
-             env: [{@stderr_var, stderr} | env(opts)],
-             stderr_to_stdout: false
-           ) do
-        {out, 0} ->
-          {:ok, out}
+    Tracer.with_span "git #{subcommand}", %{attributes: span_attributes(dir, subcommand, args)} do
+      try do
+        case System.cmd("/bin/sh", shell_args(Config.git_bin(), args),
+               cd: dir,
+               env: [{@stderr_var, stderr} | env(opts)],
+               stderr_to_stdout: false
+             ) do
+          {out, 0} ->
+            {:ok, out}
 
-        {_out, code} ->
-          log_failure(dir, args, code, read_stderr(stderr))
-          {:error, {:exit, code}}
+          {_out, code} ->
+            message = read_stderr(stderr)
+            log_failure(dir, args, code, message)
+            record_failure(code, message)
+            {:error, {:exit, code}}
+        end
+      after
+        File.rm(stderr)
       end
-    after
-      File.rm(stderr)
     end
+  end
+
+  @doc "The attributes every git span carries, whatever started it."
+  @spec span_attributes(String.t(), String.t(), [String.t()]) :: [{String.t(), term()}]
+  def span_attributes(dir, subcommand, args) do
+    [
+      {"git.subcommand", subcommand},
+      {"git.argv", Enum.join(args, " ")},
+      {"repo", Path.basename(dir, ".git")}
+    ]
+  end
+
+  @doc "Marks the current span as a git failure, with what git said."
+  @spec record_failure(integer(), String.t() | nil) :: :ok
+  def record_failure(status, stderr) do
+    Tracer.set_attributes([{"git.status", status}, {"git.stderr", stderr || ""}, {"error", true}])
+    Tracer.set_status(OpenTelemetry.status(:error, "git exited #{status}"))
+    :ok
   end
 
   @doc """

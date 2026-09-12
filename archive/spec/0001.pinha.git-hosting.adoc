@@ -11,7 +11,7 @@ Git hosting. Minimal single-node service that hosts bare git repositories from a
 == Scope
 
 * Host repositories: create and delete repos over the web and directly on disk, browse branches, commit history, files at any revision, and diffs with Jujutsu change-ID resolution, and serve raw blobs and clone/fetch/push over smart HTTP and SSH, with every user reading every repo and only its owner writing.
-* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and Prometheus `GET /metrics` on an operator-only listener, filesystem backup via copy/snapshot, no quota in v0.1.
+* Operate with minimal infrastructure: single repo root on disk, stdout JSON widelogs and OpenTelemetry traces, filesystem backup via copy/snapshot, no quota in v0.1.
 
 == Abstractions
 
@@ -29,7 +29,7 @@ Git commit with metadata, parents, full diff, and preserved trailers including `
 
 === Surface
 
-HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key / metrics listener config, JSON widelogs, Prometheus metrics, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
+HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key / trace exporter config, JSON widelogs, OpenTelemetry traces, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
 
 == Mechanics
 
@@ -91,15 +91,12 @@ The host key is an Ed25519 pair generated on first boot and written `0600` under
 
 === Operating
 
-Deployment is a single release plus the repo directory, configured with repo root path, HTTP listen address, public base URL, SSH port, SSH host key directory, the SSH host advertised in clone URLs, and the metrics port and address. Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, event, transport (`http` / `ssh`), method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs. git's stderr is captured rather than inherited: a git process that fails during a request puts what it said on that request's line, and one with no request behind it writes a line of its own naming the repository, the arguments, and the exit status. Nothing unstructured is written between the lines. An SSH exec emits one line of the same shape, with the repo, the git protocol, the git exit status, and bytes in each direction filling in for method, route, and user agent. Metrics are Prometheus text at `GET /metrics`, on a listener of its own bound to loopback by default. It carries no authentication, so the address it binds is the access control, and a scraper elsewhere is given an address or a tunnel. That listener answers the one path and 404s everything else:
+Deployment is a single release plus the repo directory, configured with repo root path, HTTP listen address, public base URL, SSH port, SSH host key directory, the SSH host advertised in clone URLs, and the trace exporter's endpoint and key.
 
-* `http_requests_total{route,status}` — request count.
-* `http_request_duration_ms` — request latency.
-* `git_fetches_total{repo,transport}` — fetch count.
-* `git_pushes_total{repo,transport}` — push count.
-* `git_ref_updates_total{repo}` — ref update count.
-* `ssh_auth_failures_total` — rejected public keys.
-* `repos_total` — repo count.
-* `repo_disk_bytes{repo}` — disk usage (cached `du`, refreshed by a background process roughly every 60s).
+Logs go to stdout as JSON with one canonical widelog line per HTTP request, carrying timestamp, event, transport (`http` / `ssh`), method, route, repo, rev, git protocol (`upload-pack` / `receive-pack` / none), status, duration_ms, request and response bytes, and user agent; push lines also carry per-ref old and new tips, truncated after N refs.
 
-There is no alerting and no tracing in v0.1; the operator scrapes the metrics port with anything Prometheus-compatible.
+git's stderr is captured rather than inherited: a git process that fails during a request puts what it said on that request's line, and one with no request behind it writes a line of its own naming the repository, the arguments, and the exit status. Nothing unstructured is written between the lines. An SSH exec emits one line of the same shape, with the repo, the git protocol, the git exit status, and bytes in each direction filling in for method, route, and user agent.
+
+Traces are OpenTelemetry, exported over OTLP to whatever collector the operator names; without a key configured the spans are created and go nowhere. The HTTP surface is instrumented through the events Phoenix, Bandit, and Ecto already emit. Neither git transport is Phoenix, so both carry spans of their own: one per `upload-pack` or `receive-pack`, one per git subprocess, and one per SSH session including the refused ones, each naming the repository, the subcommand, the user, the bytes moved, and git's own stderr when it failed. A session refused before git runs is a span too, rather than a gap.
+
+There is no alerting in v0.1, and no counters of the server's own: a rate of pushes or fetches is a query over the spans rather than a number the server keeps.

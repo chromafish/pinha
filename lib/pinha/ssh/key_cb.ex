@@ -16,7 +16,6 @@ defmodule Pinha.Ssh.KeyCb do
   alias Pinha.Accounts
   alias Pinha.Accounts.SshKey
   alias Pinha.Config
-  alias Pinha.Metrics
   alias Pinha.Ssh
 
   require Logger
@@ -39,8 +38,6 @@ defmodule Pinha.Ssh.KeyCb do
   end
 
   defp refuse(key, user) do
-    Metrics.inc("ssh_auth_failures_total")
-
     fingerprint =
       case SshKey.fingerprint(key) do
         {:ok, fingerprint} -> SshKey.format_fingerprint(fingerprint)

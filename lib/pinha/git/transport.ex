@@ -12,6 +12,7 @@ defmodule Pinha.Git.Transport do
   alias Pinha.Git.PktLine
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
 
   @idle_timeout 300_000
 
@@ -53,6 +54,13 @@ defmodule Pinha.Git.Transport do
           {:ok, acc, integer(), String.t() | nil} | {:error, term(), acc}
         when acc: term()
   def rpc(dir, service, input_path, opts, acc, on_chunk) do
+    Tracer.with_span "git #{subcommand(service)}",
+                     %{attributes: Git.span_attributes(dir, subcommand(service), [service])} do
+      run_rpc(dir, service, input_path, opts, acc, on_chunk)
+    end
+  end
+
+  defp run_rpc(dir, service, input_path, opts, acc, on_chunk) do
     stderr = Git.stderr_path()
 
     command =
@@ -75,8 +83,17 @@ defmodule Pinha.Git.Transport do
 
     try do
       case stream(port, acc, on_chunk) do
-        {:ok, acc, status} -> {:ok, acc, status, Git.read_stderr(stderr)}
-        {:error, reason, acc} -> {:error, reason, acc}
+        {:ok, acc, 0} ->
+          {:ok, acc, 0, nil}
+
+        {:ok, acc, status} ->
+          message = Git.read_stderr(stderr)
+          Git.record_failure(status, message)
+          {:ok, acc, status, message}
+
+        {:error, reason, acc} ->
+          Tracer.set_status(OpenTelemetry.status(:error, "transport failed"))
+          {:error, reason, acc}
       end
     after
       File.rm(stderr)

@@ -30,9 +30,9 @@ the admin account. Everyone after that needs an invite.
 | `PINHA_SSH_ADDRESS` | IP address the SSH listener binds | all interfaces |
 | `PINHA_SSH_HOST_KEY_DIR` | Directory holding the host key | `.pinha/ssh` under the repo root |
 | `PINHA_SSH_ENABLED` | Set to `false` to run without SSH | `true` |
-| `PINHA_METRICS_PORT` | Port the metrics listener binds | `9568` |
-| `PINHA_METRICS_ADDRESS` | IP address the metrics listener binds | `127.0.0.1` |
-| `PINHA_METRICS_ENABLED` | Set to `false` to run without metrics | `true` |
+| `HONEYCOMB_API_KEY` | Ingest key for the trace exporter; unset means traces go nowhere | none |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Where traces are exported | `https://api.honeycomb.io` |
+| `OTEL_SERVICE_NAME` | Service name on the spans | `pinha` |
 | `SECRET_KEY_BASE` | Cookie signing secret (production only) | required in prod |
 | `DATABASE_URL` | Postgres holding the accounts | required in prod |
 | `POOL_SIZE` | Database connections | `5` |
@@ -126,7 +126,7 @@ SSH is the other way in:
 git clone ssh://git@git.example.com:2222/demo.git
 ```
 
-Everything but `/signin`, `/signup`, and `/metrics` requires a user. Lose every
+Everything but `/signin` and `/signup` requires a user. Lose every
 passkey and the way back is the release console, which authorizes one
 registration for fifteen minutes. The email names the account; nothing is sent
 to it:
@@ -151,16 +151,16 @@ instead of as loose text between the JSON. A git command with no request
 behind it, from browsing or background maintenance, writes its own
 `event: "git"` line with the repository, the arguments, and the status.
 
-Metrics available:
+Traces are OpenTelemetry over OTLP. The HTTP surface comes from the events
+Phoenix, Bandit and Ecto already emit; neither git transport is Phoenix, so
+each carries spans of its own — one per `upload-pack` or `receive-pack`, one
+per git subprocess, one per SSH session, refusals included — naming the repo,
+the subcommand, the user, the bytes moved, and git's stderr when it failed.
 
-- `http_requests_total{route,status}`
-- `http_request_duration_ms` (histogram)
-- `git_fetches_total{repo,transport}`
-- `git_pushes_total{repo,transport}`
-- `git_ref_updates_total{repo}`
-- `ssh_auth_failures_total`
-- `repos_total`
-- `repo_disk_bytes{repo}` (cached `du`, refreshed every 60s)
+Without `HONEYCOMB_API_KEY` the spans are created and go nowhere, which is
+what a development machine wants; the suite never exports whatever is in the
+environment. There are no counters of the server's own, so how many pushes,
+how slow, and by whom is a query over the spans.
 
 Maintenance runs in supervised background processes: a task after each
 receive runs `git gc --auto`, and a periodic job prunes and repacks every

@@ -23,7 +23,10 @@ defmodule Pinha.MixProject do
     [
       pinha: [
         include_executables_for: [:unix],
-        steps: [:assemble, :tar]
+        steps: [:assemble, :tar],
+        # The exporter has to be up before anything it exports for, and a
+        # telemetry pipeline that dies is not a reason to take the node down.
+        applications: [opentelemetry_exporter: :permanent, opentelemetry: :temporary]
       ]
     ]
   end
@@ -65,7 +68,13 @@ defmodule Pinha.MixProject do
       {:bandit, "~> 1.5"},
       {:ecto_sql, "~> 3.12"},
       {:postgrex, ">= 0.0.0"},
-      {:wax_, "~> 0.7.0"}
+      {:wax_, "~> 0.7.0"},
+      {:opentelemetry_api, "~> 1.4"},
+      {:opentelemetry, "~> 1.5"},
+      {:opentelemetry_exporter, "~> 1.8"},
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_bandit, "~> 0.2"},
+      {:opentelemetry_ecto, "~> 1.2"}
     ]
   end
 

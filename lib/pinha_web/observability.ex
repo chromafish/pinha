@@ -1,6 +1,6 @@
 defmodule PinhaWeb.Observability do
   @moduledoc """
-  One canonical widelog line per HTTP request, plus the request metrics.
+  One canonical widelog line per HTTP request.
 
   The line goes to stdout as JSON, carrying the route, repo, rev, git
   protocol, authenticated user, status, duration, byte counts, and user agent;
@@ -8,7 +8,6 @@ defmodule PinhaWeb.Observability do
   `:log_max_refs` refs.
   """
 
-  alias Pinha.Metrics
   alias Pinha.Widelog
 
   @doc false
@@ -32,19 +31,13 @@ defmodule PinhaWeb.Observability do
     end
   end
 
-  @doc "Records metrics and writes the widelog line for a finished request."
+  @doc "Writes the widelog line for a finished request."
   @spec finish(Plug.Conn.t(), integer()) :: Plug.Conn.t()
   def finish(conn, start_time) do
     duration_ms =
       System.convert_time_unit(System.monotonic_time() - start_time, :native, :microsecond) / 1000
 
-    route = route(conn)
-    status = conn.status || 0
-
-    Metrics.inc("http_requests_total", [{"route", route}, {"status", to_string(status)}])
-    Metrics.observe("http_request_duration_ms", duration_ms)
-
-    Widelog.write(line(conn, route, duration_ms))
+    Widelog.write(line(conn, route(conn), duration_ms))
 
     conn
   end

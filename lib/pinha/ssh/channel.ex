@@ -20,12 +20,14 @@ defmodule Pinha.Ssh.Channel do
   alias Pinha.Git
   alias Pinha.Git.PktLine
   alias Pinha.Maintenance
-  alias Pinha.Metrics
   alias Pinha.Repos
   alias Pinha.Ssh
   alias Pinha.Widelog
 
   require Logger
+  require OpenTelemetry.Tracer, as: Tracer
+
+  alias OpenTelemetry.Span
 
   # Protocol v2 is the one thing a client may put in the environment. Anything
   # else would let a session name object directories or config files of its
@@ -50,6 +52,7 @@ defmodule Pinha.Ssh.Channel do
       :timer,
       :peer,
       :stderr_path,
+      :span,
       scan: <<>>,
       refs: nil,
       req_bytes: 0,
@@ -146,12 +149,26 @@ defmodule Pinha.Ssh.Channel do
   ## Running git
 
   defp start(state, command) do
-    state = %{state | started_at: System.monotonic_time()}
+    # The span opens before the command is understood, so a refused session is
+    # a span too rather than a gap.
+    span =
+      Tracer.start_span("ssh exec", %{
+        attributes: [{"transport", "ssh"}, {"peer", state.peer || ""}]
+      })
+
+    state = %{state | started_at: System.monotonic_time(), span: span}
 
     with {:ok, subcommand, name} <- parse(command),
          {:ok, user} <- authenticated(state),
          {:ok, repo} <- repository(name),
          :ok <- authorize(subcommand, repo, user) do
+      Span.update_name(span, "git #{subcommand}")
+
+      Span.set_attributes(
+        span,
+        [{"user", user.id}] ++ Git.span_attributes(repo.dir, subcommand, [subcommand])
+      )
+
       spawn_git(%{state | subcommand: subcommand, repo: repo, user: user})
     else
       {:error, message} -> deny(state, message)
@@ -225,7 +242,6 @@ defmodule Pinha.Ssh.Channel do
             env: env(%{state | stderr_path: stderr})
           ])
 
-        count(state)
         {:ok, arm(%{state | port: port, stderr_path: stderr})}
     end
   end
@@ -250,31 +266,13 @@ defmodule Pinha.Ssh.Channel do
 
   ## Counting and finishing
 
-  defp count(%State{subcommand: "upload-pack", repo: repo} = state) do
-    Metrics.inc("git_fetches_total", [{"repo", repo.name}, {"transport", "ssh"}])
-    state
-  end
-
-  defp count(%State{subcommand: "receive-pack", repo: repo} = state) do
-    Metrics.inc("git_pushes_total", [{"repo", repo.name}, {"transport", "ssh"}])
-    state
-  end
-
   # The ref updates a push asks for arrive at the head of its stream, the same
   # pkt-lines the HTTP transport reads out of the request body.
   defp scan(%State{subcommand: "receive-pack", refs: nil} = state, data) do
     scan = state.scan <> data
 
     if byte_size(scan) >= @command_scan_bytes or String.contains?(scan, PktLine.flush()) do
-      commands = PktLine.parse_commands(scan)
-
-      Metrics.inc(
-        "git_ref_updates_total",
-        [{"repo", state.repo.name}],
-        length(commands)
-      )
-
-      %{state | scan: <<>>, refs: commands}
+      %{state | scan: <<>>, refs: PktLine.parse_commands(scan)}
     else
       %{state | scan: scan}
     end
@@ -283,6 +281,11 @@ defmodule Pinha.Ssh.Channel do
   defp scan(state, _data), do: state
 
   defp deny(state, message) do
+    if state.span do
+      Span.set_attributes(state.span, [{"error", true}, {"ssh.refusal", message}])
+      Span.set_status(state.span, OpenTelemetry.status(:error, message))
+    end
+
     :ssh_connection.send(state.cm, state.id, 1, "pinha: " <> message <> "\n")
     finish(state, 1)
   end
@@ -293,6 +296,7 @@ defmodule Pinha.Ssh.Channel do
     end
 
     log(state, status)
+    close_span(state, status)
 
     :ssh_connection.send_eof(state.cm, state.id)
     :ssh_connection.exit_status(state.cm, state.id, status)
@@ -366,6 +370,26 @@ defmodule Pinha.Ssh.Channel do
     |> System.convert_time_unit(:native, :microsecond)
     |> Kernel./(1000)
     |> Float.round(3)
+  end
+
+  defp close_span(%State{span: nil}, _status), do: :ok
+
+  defp close_span(state, status) do
+    Span.set_attributes(state.span, [
+      {"status", status},
+      {"req_bytes", state.req_bytes},
+      {"resp_bytes", state.resp_bytes},
+      {"refs", length(state.refs || [])}
+    ])
+
+    if status != 0 do
+      stderr = state.stderr_path && Git.read_stderr(state.stderr_path)
+      Span.set_attributes(state.span, [{"error", true}, {"git.stderr", stderr || ""}])
+      Span.set_status(state.span, OpenTelemetry.status(:error, "git exited #{status}"))
+    end
+
+    Span.end_span(state.span)
+    :ok
   end
 
   ## Housekeeping

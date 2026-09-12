@@ -2,7 +2,6 @@ defmodule PinhaWeb.GitHttpControllerTest do
   use PinhaWeb.ConnCase, async: false
 
   alias Pinha.Git
-  alias Pinha.Metrics
 
   @change_id "kmpsxwvrlouvzysnkulnnnttrrytwstn"
 
@@ -173,22 +172,5 @@ defmodule PinhaWeb.GitHttpControllerTest do
 
       assert git!(clone, ["push", "--quiet", "origin", "main"])
     end
-  end
-
-  test "transport metrics count fetches, pushes, and ref updates", %{url: url} do
-    create_repo!("demo")
-    work = tmp_dir!()
-    clone = Path.join(work, "one")
-    git!(work, ["clone", "--quiet", url, clone])
-    File.write!(Path.join(clone, "a.txt"), "a\n")
-    git!(clone, ["add", "-A"])
-    git!(clone, ["commit", "--quiet", "-m", "first"])
-    git!(clone, ["push", "--quiet", "origin", "main"])
-    git!(work, ["clone", "--quiet", url, Path.join(work, "two")])
-
-    metrics = IO.iodata_to_binary(Metrics.render())
-    assert metrics =~ ~r/git_pushes_total\{repo="demo",transport="http"\} [1-9]/
-    assert metrics =~ ~r/git_ref_updates_total\{repo="demo"\} [1-9]/
-    assert metrics =~ ~r/git_fetches_total\{repo="demo",transport="http"\} [1-9]/
   end
 end
