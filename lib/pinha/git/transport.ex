@@ -33,8 +33,9 @@ defmodule Pinha.Git.Transport do
           {:ok, PktLine.encode("# service=#{service}\n") <> PktLine.flush() <> out}
 
         {_out, code} ->
-          Git.log_failure(dir, args, code, Git.read_stderr(stderr))
-          {:error, {:exit, code}}
+          message = Git.read_stderr(stderr)
+          Git.record_failure(code, message)
+          {:error, {:exit, code}, message}
       end
     after
       File.rm(stderr)

@@ -39,9 +39,11 @@ defmodule PinhaWeb.GitHttpController do
           |> put_resp_header("content-type", "application/x-#{service}-advertisement")
           |> send_resp(200, body)
 
-        {:error, reason} ->
-          Logger.error("advertise failed for #{repo.name}: #{inspect(reason)}")
-          send_resp(conn, 500, "advertisement failed\n")
+        {:error, {:exit, status}, stderr} ->
+          conn
+          |> put_private(:pinha_git_status, status)
+          |> put_private(:pinha_git_stderr, stderr)
+          |> send_resp(500, "advertisement failed\n")
       end
     else
       false -> send_resp(conn, 403, "only the smart HTTP protocol is supported\n")

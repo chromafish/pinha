@@ -153,8 +153,8 @@ behind it, from browsing or background maintenance, writes its own
 
 Traces are OpenTelemetry over OTLP. The HTTP surface comes from the events
 Phoenix, Bandit and Ecto already emit; neither git transport is Phoenix, so
-each carries spans of its own — one per `upload-pack` or `receive-pack`, one
-per git subprocess, one per SSH session, refusals included — naming the repo,
+each carries spans of its own — one per advertisement, `upload-pack` or
+`receive-pack`, one per git subprocess, one per SSH session — naming the repo,
 the subcommand, the user, the bytes moved, and git's stderr when it failed.
 
 Without `HONEYCOMB_API_KEY` the spans are created and go nowhere, which is
