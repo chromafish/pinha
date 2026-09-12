@@ -9,6 +9,8 @@ defmodule Pinha.Git do
   """
 
   alias Pinha.Config
+  alias Pinha.Git.ChangeIdCache
+  alias Pinha.Git.Limiter
   alias Pinha.Repos.Repo
   alias Pinha.Widelog
 
@@ -60,6 +62,9 @@ defmodule Pinha.Git do
   git's stderr is captured rather than inherited: a failure becomes one
   widelog line carrying the repository, the arguments, the exit status, and
   what git said, instead of unstructured text next to the request lines.
+
+  The git process counts against `Pinha.Git.Limiter`. Time spent waiting for
+  a slot is recorded on the span as `git.wait_ms`.
   """
   @spec run(String.t(), [String.t()], keyword()) :: {:ok, binary()} | {:error, {:exit, integer()}}
   def run(dir, args, opts \\ []) do
@@ -70,11 +75,18 @@ defmodule Pinha.Git do
 
     Tracer.with_span "git #{subcommand}", %{attributes: span_attributes(dir, subcommand, args)} do
       try do
-        case System.cmd("/bin/sh", shell_args(Config.git_bin(), args, stdin != nil),
-               cd: dir,
-               env: input_env(stdin) ++ [{@stderr_var, stderr} | env(opts)],
-               stderr_to_stdout: false
-             ) do
+        {result, wait_ms} =
+          Limiter.run(fn ->
+            System.cmd("/bin/sh", shell_args(Config.git_bin(), args, stdin != nil),
+              cd: dir,
+              env: input_env(stdin) ++ [{@stderr_var, stderr} | env(opts)],
+              stderr_to_stdout: false
+            )
+          end)
+
+        Tracer.set_attribute("git.wait_ms", wait_ms)
+
+        case result do
           {out, 0} ->
             {:ok, out}
 
@@ -211,12 +223,16 @@ defmodule Pinha.Git do
   @spec branches(Repo.t()) :: [map()]
   def branches(repo), do: bookmarks(repo)
 
-  @doc "The revision used when a browse URL does not name one."
-  @spec default_revision(Repo.t()) :: map() | nil
-  def default_revision(repo) do
+  @doc """
+  The revision used when a browse URL does not name one.
+
+  Takes the same options as `resolve/3`.
+  """
+  @spec default_revision(Repo.t(), keyword()) :: map() | nil
+  def default_revision(repo, opts \\ []) do
     case refs(repo, tags: false) do
       %{default_bookmark: %{} = bookmark} ->
-        target(bookmark.id, :bookmark, bookmark.name, repo)
+        target(bookmark.id, :bookmark, bookmark.name, repo, opts)
 
       _ ->
         case log_all(repo, limit: 1) do
@@ -302,22 +318,26 @@ defmodule Pinha.Git do
   Full commit id first, then bookmark, then tag, then Jujutsu change id (full or
   unique prefix). Short commit ids are not resolved. An ambiguous change-id
   prefix, or a change id shared by divergent commits, returns every match.
+
+  With `change_id: false`, a commit id, bookmark, or tag resolves with a nil
+  `change_id` instead of reading it, for callers that read the commit anyway
+  or never show it. A change id match always carries its change id.
   """
-  @spec resolve(Repo.t(), String.t()) ::
+  @spec resolve(Repo.t(), String.t(), keyword()) ::
           {:ok, map()} | {:ambiguous, [map()]} | {:error, :not_found}
-  def resolve(repo, rev) when is_binary(rev) do
-    with :error <- resolve_commit_id(repo, rev),
-         :error <- resolve_ref(repo, rev) do
+  def resolve(repo, rev, opts \\ []) when is_binary(rev) do
+    with :error <- resolve_commit_id(repo, rev, opts),
+         :error <- resolve_ref(repo, rev, opts) do
       resolve_change_id(repo, rev)
     end
   end
 
-  defp resolve_commit_id(%Repo{dir: dir} = repo, rev) do
+  defp resolve_commit_id(%Repo{dir: dir} = repo, rev, opts) do
     if full_object_id?(rev) do
       case run(dir, ["rev-parse", "--verify", "--quiet", "--end-of-options", rev <> "^{commit}"]) do
         {:ok, out} ->
           id = String.trim(out)
-          {:ok, %{id: id, kind: :commit, name: rev, change_id: change_id_of(repo, id)}}
+          {:ok, target(id, :commit, rev, repo, opts)}
 
         {:error, _} ->
           :error
@@ -328,23 +348,25 @@ defmodule Pinha.Git do
   end
 
   # A bookmark wins over a tag of the same name.
-  defp resolve_ref(repo, rev) do
+  defp resolve_ref(repo, rev, opts) do
     %{bookmarks: bookmarks, tags: tags} = refs(repo)
 
     cond do
       bookmark = Enum.find(bookmarks, &(&1.name == rev)) ->
-        {:ok, target(bookmark.id, :bookmark, rev, repo)}
+        {:ok, target(bookmark.id, :bookmark, rev, repo, opts)}
 
       tag = Enum.find(tags, &(&1.name == rev)) ->
-        {:ok, target(tag.id, :tag, rev, repo)}
+        {:ok, target(tag.id, :tag, rev, repo, opts)}
 
       true ->
         :error
     end
   end
 
-  defp target(id, kind, name, repo),
-    do: %{id: id, kind: kind, name: name, change_id: change_id_of(repo, id)}
+  defp target(id, kind, name, repo, opts) do
+    change_id = if Keyword.get(opts, :change_id, true), do: change_id_of(repo, id)
+    %{id: id, kind: kind, name: name, change_id: change_id}
+  end
 
   defp resolve_change_id(repo, rev) do
     if change_id_prefix?(rev) do
@@ -647,7 +669,22 @@ defmodule Pinha.Git do
 
   defp native_change_ids(_dir, []), do: %{}
 
+  # Commits already read on this node come from ChangeIdCache; only the rest
+  # go through `cat-file --batch`. The result holds only commits that carry a
+  # native header.
   defp native_change_ids(dir, ids) do
+    {cached, unread} = ChangeIdCache.lookup(dir, Enum.uniq(ids))
+    read = read_native_change_ids(dir, unread)
+    ChangeIdCache.put(dir, read)
+
+    cached
+    |> Map.merge(read)
+    |> Map.reject(fn {_id, change_id} -> is_nil(change_id) end)
+  end
+
+  defp read_native_change_ids(_dir, []), do: %{}
+
+  defp read_native_change_ids(dir, ids) do
     input = Enum.map_join(ids, "", &(&1 <> "\n"))
 
     case run(dir, ["cat-file", "--batch"], input: input) do
@@ -656,20 +693,28 @@ defmodule Pinha.Git do
     end
   end
 
+  # Every commit read maps to its native change id, or nil without one. Other
+  # object types are skipped, as are names git reports missing or ambiguous.
   defp parse_batch_change_ids("", ids), do: ids
 
   defp parse_batch_change_ids(out, ids) do
-    with [header, rest] <- :binary.split(out, "\n"),
-         [id, "commit", size] <- String.split(header, " "),
-         {size, ""} <- Integer.parse(size),
-         true <- byte_size(rest) > size,
-         <<content::binary-size(size), "\n", tail::binary>> <- rest do
-      ids =
-        case header_change_id(content) do
-          nil -> ids
-          change_id -> Map.put(ids, id, change_id)
+    case :binary.split(out, "\n") do
+      [header, rest] ->
+        case String.split(header, " ") do
+          [id, type, size] -> parse_batch_object(id, type, size, rest, ids)
+          [_name, _missing] -> parse_batch_change_ids(rest, ids)
+          _ -> ids
         end
 
+      _ ->
+        ids
+    end
+  end
+
+  defp parse_batch_object(id, type, size, rest, ids) do
+    with {size, ""} <- Integer.parse(size),
+         <<content::binary-size(size), "\n", tail::binary>> <- rest do
+      ids = if type == "commit", do: Map.put(ids, id, header_change_id(content)), else: ids
       parse_batch_change_ids(tail, ids)
     else
       _ -> ids

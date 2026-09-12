@@ -12,6 +12,14 @@ defmodule Pinha.Config do
 
   def git_bin, do: Application.get_env(:pinha, :git_bin, "git")
 
+  @doc "How many git processes run at once for page reads and upkeep, node-wide."
+  def git_max_concurrency,
+    do: Application.get_env(:pinha, :git_max_concurrency) || System.schedulers_online() * 4
+
+  @doc "How many commits' change IDs the node keeps in memory before starting over."
+  def change_id_cache_max_entries,
+    do: Application.get_env(:pinha, :change_id_cache_max_entries, 100_000)
+
   @doc "Whether the SSH listener runs at all."
   def ssh_enabled?, do: Application.get_env(:pinha, :ssh_enabled, true)
 

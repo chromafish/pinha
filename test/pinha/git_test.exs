@@ -2,6 +2,7 @@ defmodule Pinha.GitTest do
   use Pinha.RepoCase, async: false
 
   alias Pinha.Git
+  alias Pinha.Git.ChangeIdCache
 
   @first_change "kmpsxwvrlouvzysnkulnnnttrrytwstn"
   @second_change "znlwuprqroqnpymvvusotzrukvtrwsxs"
@@ -104,6 +105,22 @@ defmodule Pinha.GitTest do
                Git.resolve(repo, head.id)
 
       assert id == head.id
+    end
+
+    test "change_id: false skips the change id except for change id matches", %{
+      repo: repo,
+      commits: [head | _]
+    } do
+      assert {:ok, %{id: id, change_id: nil}} = Git.resolve(repo, head.id, change_id: false)
+      assert id == head.id
+
+      assert {:ok, %{kind: :bookmark, change_id: nil}} =
+               Git.resolve(repo, "main", change_id: false)
+
+      assert %{kind: :bookmark, change_id: nil} = Git.default_revision(repo, change_id: false)
+
+      assert {:ok, %{kind: :change_id, change_id: @second_change}} =
+               Git.resolve(repo, @second_change, change_id: false)
     end
 
     test "does not resolve short commit ids", %{repo: repo, commits: [head | _]} do
@@ -226,6 +243,10 @@ defmodule Pinha.GitTest do
         )
 
       assert [%{id: ^id, change_id: ^native_change}] = Git.log(repo, "native", limit: 1)
+
+      assert ChangeIdCache.lookup(repo.dir, [id, head.id]) ==
+               {%{id => native_change, head.id => nil}, []}
+
       assert Git.change_id_of(repo, id) == native_change
       assert {:ok, %{id: ^id, kind: :change_id}} = Git.resolve(repo, native_change)
       assert Git.resolve(repo, "legacytrailer") == {:error, :not_found}
@@ -244,6 +265,10 @@ defmodule Pinha.GitTest do
 
     test "commit/2 reports unknown ids", %{repo: repo} do
       assert Git.commit(repo, String.duplicate("0", 40)) == {:error, :not_found}
+    end
+
+    test "change_id_of/2 is nil for an id git reports missing", %{repo: repo} do
+      assert Git.change_id_of(repo, String.duplicate("0", 40)) == nil
     end
 
     test "diff/2 and diff_stat/2 describe the change", %{repo: repo, commits: [head, root]} do

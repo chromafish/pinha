@@ -13,6 +13,8 @@ defmodule Pinha.Application do
         Pinha.Repo,
         Pinha.Accounts.SessionCache,
         Pinha.Accounts.Registration,
+        Pinha.Git.Limiter,
+        Pinha.Git.ChangeIdCache,
         {Task.Supervisor, name: Pinha.TaskSupervisor},
         Pinha.Repos.Creator,
         Pinha.Ssh,

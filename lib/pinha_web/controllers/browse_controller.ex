@@ -29,7 +29,7 @@ defmodule PinhaWeb.BrowseController do
   end
 
   def raw(conn, %{"repo" => name} = params) do
-    with_target(conn, name, params["rev"], fn conn, repo, target ->
+    with_target(conn, name, params["rev"], [change_id: false], fn conn, repo, target ->
       case browse_path(params) do
         :error ->
           fail(conn, 400, "invalid path")
@@ -50,7 +50,8 @@ defmodule PinhaWeb.BrowseController do
   end
 
   def commit(conn, %{"repo" => name, "id" => id}) do
-    with_target(conn, name, id, fn conn, repo, target ->
+    # Git.commit/2 reads the change id itself.
+    with_target(conn, name, id, [change_id: false], fn conn, repo, target ->
       [commit, stat, diff] =
         Parallel.all([
           fn -> Git.commit(repo, target.id) end,
@@ -109,11 +110,12 @@ defmodule PinhaWeb.BrowseController do
   defp blob_lines(%{content: content}), do: content |> Git.scrub() |> String.split("\n")
 
   # Resolves the repo and revision. Without one, an existing HEAD bookmark wins;
-  # a bookmarkless repository uses its newest reachable commit.
-  defp with_target(conn, name, rev, fun) do
+  # a bookmarkless repository uses its newest reachable commit. `opts` go to
+  # Git.resolve/3.
+  defp with_target(conn, name, rev, opts \\ [], fun) do
     case Repos.fetch(name) do
       {:ok, repo} ->
-        case if(rev, do: Git.resolve(repo, rev), else: default_target(repo)) do
+        case if(rev, do: Git.resolve(repo, rev, opts), else: default_target(repo, opts)) do
           nil ->
             fail(conn, 404, "repository has no revisions")
 
@@ -140,8 +142,8 @@ defmodule PinhaWeb.BrowseController do
     end
   end
 
-  defp default_target(repo) do
-    case Git.default_revision(repo) do
+  defp default_target(repo, opts) do
+    case Git.default_revision(repo, opts) do
       nil -> nil
       target -> {:ok, target}
     end
