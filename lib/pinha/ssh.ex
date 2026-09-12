@@ -162,7 +162,9 @@ defmodule Pinha.Ssh do
     dir
   end
 
-  defp host_key_fingerprint(dir) do
+  @doc "`SHA256:...` for the host key on disk, the line to publish to clients."
+  @spec host_key_fingerprint(String.t()) :: String.t()
+  def host_key_fingerprint(dir) do
     with {:ok, pem} <- File.read(Path.join(dir, @host_key_file)),
          [entry] <- :public_key.pem_decode(pem),
          key <- :public_key.pem_entry_decode(entry),
@@ -173,7 +175,20 @@ defmodule Pinha.Ssh do
     end
   end
 
-  # An Ed25519 private key carries its public half in the fifth field, and the
-  # curve is named by OID in the form ssh encodes.
-  defp public_part(key), do: {{:ECPoint, elem(key, 4)}, {:namedCurve, {1, 3, 101, 112}}}
+  # A freshly generated Ed25519 key carries its public half in the fifth field.
+  # One read back from PKCS#8 does not: the format leaves it out, so it is
+  # derived from the private scalar instead.
+  defp public_part(key) do
+    point =
+      case elem(key, 4) do
+        public when is_binary(public) ->
+          public
+
+        _ ->
+          {public, _private} = :crypto.generate_key(:eddsa, :ed25519, elem(key, 2))
+          public
+      end
+
+    {{:ECPoint, point}, {:namedCurve, {1, 3, 101, 112}}}
+  end
 end

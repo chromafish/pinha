@@ -53,14 +53,9 @@ done
 
 [ -n "$TAG" ] || usage 1
 
-# The tag names the release; the version inside it is what Mix and the
-# artifact carry, so `v0.1.0` and `0.1.0` package the same thing.
+# The tag names the release; the version inside it is the project version, so
+# `v0.1.0` and `0.1.0` package the same thing.
 VERSION="${TAG#v}"
-
-case "$VERSION" in
-  [0-9]*.[0-9]*.[0-9]*) ;;
-  *) die "'$TAG' is not a version: expected something like v1.2.3 or 1.2.3-rc1" ;;
-esac
 
 command -v mix >/dev/null || die "mix is not on PATH"
 command -v git >/dev/null || die "git is not on PATH"
@@ -77,6 +72,11 @@ git checkout --detach --quiet "refs/tags/$TAG"
 REVISION="$(git rev-parse HEAD)"
 printf '%s is %s\n' "$TAG" "$REVISION"
 
+PROJECT_VERSION="$(sed -n 's/^ *version: "\([^"]*\)".*/\1/p' mix.exs | head -1)"
+
+[ "$PROJECT_VERSION" = "$VERSION" ] ||
+  die "$TAG does not match the version in mix.exs at that tag ($PROJECT_VERSION)"
+
 step "Building $TAG"
 
 # config/runtime.exs is evaluated by Mix for this build and again by the
@@ -85,7 +85,6 @@ step "Building $TAG"
 # operator starts it.
 export SECRET_KEY_BASE="${SECRET_KEY_BASE:-$(printf '%064d' 0)}"
 export DATABASE_URL="${DATABASE_URL:-postgresql://build:build@localhost/build}"
-export PINHA_VERSION="$VERSION"
 export MIX_ENV=prod
 
 mix deps.get --only prod

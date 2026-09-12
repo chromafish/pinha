@@ -1,14 +1,10 @@
 defmodule Pinha.MixProject do
   use Mix.Project
 
-  # `scripts/release.sh` sets this from the tag it was given, so the artifact
-  # and the running node both name the release an operator deployed.
-  @version System.get_env("PINHA_VERSION") || "0.1.0"
-
   def project do
     [
       app: :pinha,
-      version: @version,
+      version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,

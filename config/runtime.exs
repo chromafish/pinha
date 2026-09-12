@@ -37,6 +37,15 @@ if ssh_port = System.get_env("PINHA_SSH_PORT") do
   config :pinha, ssh_port: String.to_integer(ssh_port)
 end
 
+# Not tied to PINHA_LISTEN_ADDRESS: HTTP usually sits on loopback behind a
+# proxy, while git clients reach this listener directly.
+if ssh_address = System.get_env("PINHA_SSH_ADDRESS") do
+  case :inet.parse_address(String.to_charlist(ssh_address)) do
+    {:ok, ip} -> config :pinha, ssh_listen_ip: ip
+    {:error, _} -> raise "PINHA_SSH_ADDRESS is not a valid IP address: #{ssh_address}"
+  end
+end
+
 if ssh_host = System.get_env("PINHA_SSH_HOST") do
   config :pinha, ssh_host: ssh_host
 end
@@ -60,9 +69,6 @@ listen_ip =
         {:error, _} -> raise "PINHA_LISTEN_ADDRESS is not a valid IP address: #{address}"
       end
   end
-
-# The SSH listener binds the same address as HTTP when one is named.
-if listen_ip, do: config(:pinha, ssh_listen_ip: listen_ip)
 
 # The test endpoint keeps the port from config/test.exs so a running dev
 # server never collides with the suite.

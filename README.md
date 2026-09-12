@@ -27,6 +27,7 @@ the admin account. Everyone after that needs an invite.
 | `PINHA_BASE_URL` | Public URL used for clone commands, and the WebAuthn relying party | `http://localhost:4000` |
 | `PINHA_SSH_PORT` | Port the SSH listener binds | `2222` |
 | `PINHA_SSH_HOST` | Host written into SSH clone URLs | host of `PINHA_BASE_URL` |
+| `PINHA_SSH_ADDRESS` | IP address the SSH listener binds | all interfaces |
 | `PINHA_SSH_HOST_KEY_DIR` | Directory holding the host key | `.pinha/ssh` under the repo root |
 | `PINHA_SSH_ENABLED` | Set to `false` to run without SSH | `true` |
 | `PINHA_METRICS_PORT` | Port the metrics listener binds | `9568` |
@@ -72,34 +73,9 @@ naming the tag, the revision, the toolchain, the platform, and the checksum.
 A release carries the BEAM it was built against, so it runs on the OS and
 architecture it was built on and no other.
 
-### Deploying a release
+## Deploying
 
-Migrate first, from a checkout of the tag being deployed, with `DATABASE_URL`
-naming the production database.
-
-```sh
-jj new v0.1.0
-DATABASE_URL=postgresql://user:password@host/pinha mix ecto.migrate
-```
-
-Then unpack the tarball on the server and start it:
-
-```sh
-tar -xzf pinha-0.1.0.tar.gz -C /opt/pinha
-PHX_SERVER=true PINHA_REPO_ROOT=/srv/pinha PINHA_BASE_URL=https://git.example.com \
-  DATABASE_URL=postgresql://user:password@host/pinha SECRET_KEY_BASE=... \
-  /opt/pinha/bin/pinha start
-```
-
-Going back a version takes the schema back with it. `mix ecto.rollback` runs
-each migration's `down` in reverse, newest first, from the same checkout:
-
-```sh
-DATABASE_URL=postgresql://user:password@host/pinha mix ecto.rollback --step 1
-```
-
-Run these with the default `MIX_ENV`: `MIX_ENV=prod` makes `config/runtime.exs`
-demand `SECRET_KEY_BASE` as well, which a migration has no use for.
+See `server/README.md
 
 ## Repositories
 
