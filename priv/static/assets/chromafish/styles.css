@@ -1,5 +1,8 @@
 /* Chromafish design system — token layer, vendored from the Claude Design
-   project "Chromafish Design System". Edit it there, not here. */
+   project "Chromafish Design System". Ramps, scales and semantic aliases are
+   edited there, not here. Choosing among what the system offers is not an edit:
+   set data-palette, data-theme and data-paper on the root element instead, and
+   add a palette upstream when an app wants a tone the system does not have. */
 @import url("tokens/fonts.css");
 @import url("tokens/colors.css");
 @import url("tokens/typography.css");

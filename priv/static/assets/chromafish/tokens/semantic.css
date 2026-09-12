@@ -1,4 +1,8 @@
-/* Semantic aliases — components reference ONLY these. */
+/* Semantic aliases — components reference ONLY these.
+   Anything that carries the palette's identity resolves through --accent-*, so
+   selecting a palette moves links, actions, selection and focus together.
+   Status and diff colours name their family outright: those say what happened,
+   not whose app it is. */
 :root{
   /* surfaces */
   --surface-page:var(--paper-page);
@@ -9,7 +13,7 @@
   --surface-hover:var(--paper-2);
   --surface-float:var(--paper-raised);
   --surface-active:var(--paper-3);
-  --surface-selected:var(--moss-6);
+  --surface-selected:var(--accent-6);
   --surface-inverse:var(--ink-0);
 
   /* text */
@@ -18,20 +22,20 @@
   --text-muted:var(--ink-3);
   --text-faint:var(--ink-4);
   --text-inverse:var(--paper-raised);
-  --text-link:var(--moss-2);
-  --text-link-hover:var(--moss-1);
-  --text-accent:var(--olive-2);
+  --text-link:var(--accent-2);
+  --text-link-hover:var(--accent-1);
+  --text-accent:var(--accent-alt);
 
   /* borders */
   --border-subtle:var(--paper-3);
   --border-default:var(--paper-4);
   --border-strongc:var(--ink-2);
-  --border-accent:var(--moss-3);
+  --border-accent:var(--accent-3);
 
   /* primary action */
-  --action-bg:var(--moss-2);
-  --action-bg-hover:var(--moss-1);
-  --action-bg-active:var(--moss-0);
+  --action-bg:var(--accent-2);
+  --action-bg-hover:var(--accent-1);
+  --action-bg-active:var(--accent-0);
   --action-fg:var(--paper-raised);
 
   /* status: added / changed / removed / info — the diff vocabulary */
@@ -45,5 +49,5 @@
   --diff-add-bg:var(--moss-6); --diff-add-gutter:var(--moss-3);
   --diff-del-bg:var(--rust-6); --diff-del-gutter:var(--rust-3);
   --diff-ctx-bg:transparent;
-  --focus-ring:var(--moss-3);
+  --focus-ring:var(--accent-3);
 }

@@ -1,8 +1,20 @@
-/* Base palette — earthy green on toned stock.
+/* Base palette — a tone of stock, a tone of ink, and one accent family.
+
+   A palette is a named set of those three. `moss` is the default and needs no
+   opt-in; every other one is selected with data-palette on the root element,
+   alongside data-theme and data-paper. Consumers pick a palette so that two
+   apps on this system do not arrive looking like the same app.
+
    Light is printed on coloured stock, not white paper: the page itself is a
-   green-grey tone and panels sit lighter than it. Bone is the white variation.
-   Dark is an instrument ground. All three are first-class; none is a filter
-   applied over another. */
+   tone and panels sit lighter than it. Bone is the white variation. Dark is an
+   instrument ground. All three are first-class; none is a filter applied over
+   another.
+
+   What a palette owns is the paper ramp, the ink ramp and --accent-*. What it
+   does not own is the status and diff vocabulary: added is green and removed is
+   rust under every palette, because those colours carry meaning rather than
+   identity. The accent ramps themselves are shared, so a palette can reach for
+   any of them. */
 :root{
   /* the two surfaces that are not part of the ramp */
   --paper-page:#E7EBDF;    /* the sheet itself — toned stock */
@@ -16,16 +28,37 @@
   /* olive / lichen accent */
   --olive-1:#4E5722; --olive-2:#6B7730; --olive-3:#7C8A3C; --olive-4:#A5B25C; --olive-5:#CDD69E; --olive-6:#E2E9BA;
   /* earth accents */
-  --amber-2:#7A4E0C; --amber-3:#B5761F; --amber-4:#D79A3C; --amber-6:#F0D8A0;
+  --amber-0:#3D2504; --amber-1:#5C3A08; --amber-2:#7A4E0C; --amber-3:#B5761F; --amber-4:#D79A3C; --amber-5:#E9C07B; --amber-6:#F0D8A0;
   --rust-2:#78270F; --rust-3:#A33B1F; --rust-4:#C9613F; --rust-6:#F1CCBC;
   --teal-2:#123F3C; --teal-3:#24625E; --teal-4:#4E938D; --teal-6:#BFDDD9;
   --clay-3:#8A5A3B;
+
+  /* moss: the default palette's accent. The mapping is declared once and
+     resolves through whichever theme block is in force, so a palette adds a
+     theme block only when its paper or ink differ. */
+  --accent-0:var(--moss-0); --accent-1:var(--moss-1); --accent-2:var(--moss-2); --accent-3:var(--moss-3); --accent-4:var(--moss-4); --accent-5:var(--moss-5); --accent-6:var(--moss-6);
+  --accent-alt:var(--olive-2);  /* the second voice: a quieter accent beside the first */
+}
+
+/* Amber — warm stock, warm ink, amber accent. Opt in with
+   data-palette="amber". Ochre and tallow rather than gold: the stock is oat
+   and the ink is a warm near-black, both at the same lightness as the default
+   so every contrast ratio the system was built against still holds. */
+[data-palette="amber"]{
+  --paper-page:#EDE6D6;
+  --paper-raised:#F6F1E4;
+  --paper-0:#F6F1E4; --paper-1:#EDE6D6; --paper-2:#E1D7C1; --paper-3:#CCBFA2; --paper-4:#A6987E;
+  --ink-0:#14110A; --ink-1:#211D13; --ink-2:#3B3529; --ink-3:#625949; --ink-4:#8E8471;
+
+  --accent-0:var(--amber-0); --accent-1:var(--amber-1); --accent-2:var(--amber-2); --accent-3:var(--amber-3); --accent-4:var(--amber-4); --accent-5:var(--amber-5); --accent-6:var(--amber-6);
+  --accent-alt:var(--clay-3);
 }
 
 /* Bone — the white variation. Same system on bleached stock. Opt in with
    data-paper="bone" alongside a light theme. Use it where the surface should
    disappear: print, exports, long documents. Neutrals only; every accent,
-   status and diff colour is inherited unchanged.
+   status and diff colour is inherited unchanged, so it composes with any
+   palette and is declared after them to win the paper ramp.
    Near-zero chroma on purpose: bone is white that has been washed, not paper
    that has yellowed. Any warmth here reads as beige. */
 [data-paper="bone"]{
@@ -41,10 +74,17 @@
   --ink-0:#E6E9DC; --ink-1:#D3D8C6; --ink-2:#AAB29A; --ink-3:#8C947C; --ink-4:#656D57;
   --moss-0:#DCE8DB; --moss-1:#9BC4A1; --moss-2:#6FAE79; --moss-3:#589F63; --moss-4:#3F7A4B; --moss-5:#28502F; --moss-6:#16301F;
   --olive-1:#EDEFD8; --olive-2:#C3CE86; --olive-3:#A8B85C; --olive-4:#7C8A3C; --olive-5:#454E1F; --olive-6:#252A11;
-  --amber-2:#F0D6A4; --amber-3:#D79A3C; --amber-4:#B5761F; --amber-6:#3A2A0D;
+  --amber-0:#FBEFD3; --amber-1:#F5E2B8; --amber-2:#F0D6A4; --amber-3:#D79A3C; --amber-4:#B5761F; --amber-5:#5A3F12; --amber-6:#3A2A0D;
   --rust-2:#F0CBBE; --rust-3:#D46A4C; --rust-4:#A33B1F; --rust-6:#3A1A10;
   --teal-2:#CDE3E1; --teal-3:#59A8A0; --teal-4:#24625E; --teal-6:#0F2C2A;
   --clay-3:#B98763;
+}
+
+[data-palette="amber"][data-theme="dark"]{
+  --paper-page:#0E0B06;
+  --paper-raised:#17120A;
+  --paper-0:#17120A; --paper-1:#1E1810; --paper-2:#282016; --paper-3:#38301F; --paper-4:#50452E;
+  --ink-0:#EBE5D6; --ink-1:#DAD2BF; --ink-2:#B2A88F; --ink-3:#948A72; --ink-4:#6D6450;
 }
 
 @media (prefers-color-scheme:dark){
@@ -55,9 +95,16 @@
     --ink-0:#E6E9DC; --ink-1:#D3D8C6; --ink-2:#AAB29A; --ink-3:#8C947C; --ink-4:#656D57;
     --moss-0:#DCE8DB; --moss-1:#9BC4A1; --moss-2:#6FAE79; --moss-3:#589F63; --moss-4:#3F7A4B; --moss-5:#28502F; --moss-6:#16301F;
     --olive-1:#EDEFD8; --olive-2:#C3CE86; --olive-3:#A8B85C; --olive-4:#7C8A3C; --olive-5:#454E1F; --olive-6:#252A11;
-    --amber-2:#F0D6A4; --amber-3:#D79A3C; --amber-4:#B5761F; --amber-6:#3A2A0D;
+    --amber-0:#FBEFD3; --amber-1:#F5E2B8; --amber-2:#F0D6A4; --amber-3:#D79A3C; --amber-4:#B5761F; --amber-5:#5A3F12; --amber-6:#3A2A0D;
     --rust-2:#F0CBBE; --rust-3:#D46A4C; --rust-4:#A33B1F; --rust-6:#3A1A10;
     --teal-2:#CDE3E1; --teal-3:#59A8A0; --teal-4:#24625E; --teal-6:#0F2C2A;
     --clay-3:#B98763;
+  }
+
+  [data-palette="amber"][data-theme="auto"]{
+    --paper-page:#0E0B06;
+    --paper-raised:#17120A;
+    --paper-0:#17120A; --paper-1:#1E1810; --paper-2:#282016; --paper-3:#38301F; --paper-4:#50452E;
+    --ink-0:#EBE5D6; --ink-1:#DAD2BF; --ink-2:#B2A88F; --ink-3:#948A72; --ink-4:#6D6450;
   }
 }
