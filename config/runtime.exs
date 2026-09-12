@@ -67,6 +67,27 @@ if config_env() != :test do
   config :pinha, PinhaWeb.Endpoint, http: http_options
 end
 
+# The GitHub App the operator registered for this server. Without every one
+# of these the provider is unconfigured, and the UI offers nothing that needs
+# it. The app's callback URL is `<base URL>/integrations/github/callback` and
+# its webhook URL `<base URL>/integrations/github/webhook`. The suite
+# configures its own stubbed app, so this is left alone there.
+if config_env() != :test do
+  github_private_key =
+    case System.get_env("PINHA_GITHUB_PRIVATE_KEY_PATH") do
+      nil -> System.get_env("PINHA_GITHUB_PRIVATE_KEY")
+      path -> File.read!(path)
+    end
+
+  config :pinha, Pinha.Providers.GitHub,
+    app_id: System.get_env("PINHA_GITHUB_APP_ID"),
+    app_slug: System.get_env("PINHA_GITHUB_APP_SLUG"),
+    client_id: System.get_env("PINHA_GITHUB_CLIENT_ID"),
+    client_secret: System.get_env("PINHA_GITHUB_CLIENT_SECRET"),
+    private_key: github_private_key,
+    webhook_secret: System.get_env("PINHA_GITHUB_WEBHOOK_SECRET")
+end
+
 database_url =
   if config_env() == :test do
     System.get_env("TEST_DATABASE_URL")
@@ -155,7 +176,23 @@ if honeycomb_key do
       end
 
   config :opentelemetry,
-    span_processor: :batch,
+    # The batch processor still exports; it sits behind the one that strips
+    # the query string of an authorization callback, which carries a code
+    # that tracing would otherwise record.
+    processors: [
+      {Pinha.Tracing.RedactingProcessor,
+       %{
+         next:
+           {:otel_batch_processor,
+            %{
+              name: :pinha,
+              scheduled_delay_ms: 5_000,
+              exporting_timeout_ms: 30_000,
+              max_queue_size: 2_048,
+              exporter: {:opentelemetry_exporter, %{}}
+            }}
+       }}
+    ],
     traces_exporter: :otlp,
     sampler: {:parent_based, %{root: {Pinha.Tracing.Sampler, %{}}}},
     resource: %{

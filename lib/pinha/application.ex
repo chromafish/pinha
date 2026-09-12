@@ -11,6 +11,11 @@ defmodule Pinha.Application do
     children =
       [
         Pinha.Repo,
+        # Before the queues start: anything still marked executing was left
+        # behind by a restart.
+        Pinha.Jobs,
+        {Oban, Application.fetch_env!(:pinha, Oban)},
+        {Registry, keys: :unique, name: Pinha.Mirroring.Locks},
         Pinha.Accounts.SessionCache,
         Pinha.Accounts.Registration,
         Pinha.Git.Limiter,

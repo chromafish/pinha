@@ -895,3 +895,39 @@ ul { list-style: none; margin: 0; padding: 0; }
 
   .settings .form { max-width: none; }
 }
+
+/* ---- notices -------------------------------------------------------------- */
+
+/* What a redirect left behind: the outcome of the write that came before. */
+.notices { display: grid; }
+
+.notice {
+  margin: 0;
+  padding: var(--sp-4) var(--edge);
+  font: var(--type-body);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.notice-info {
+  background: var(--status-info-bg);
+  border-left: var(--bw-thick) solid var(--status-info-line);
+  color: var(--status-info-fg);
+}
+
+.notice-error {
+  background: var(--status-danger-bg);
+  border-left: var(--bw-thick) solid var(--status-danger-line);
+  color: var(--status-danger-fg);
+}
+
+/* ---- mirror --------------------------------------------------------------- */
+
+.repo-mirror .kv { padding: var(--sp-5) var(--edge); }
+
+.mirror-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  padding: var(--sp-5) var(--edge);
+  border-top: 1px solid var(--border-subtle);
+}

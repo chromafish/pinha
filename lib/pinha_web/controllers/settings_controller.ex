@@ -15,6 +15,9 @@ defmodule PinhaWeb.SettingsController do
   alias Pinha.Accounts
   alias Pinha.Accounts.WebAuthn
   alias Pinha.Audit
+  alias Pinha.Providers
+  alias Pinha.Providers.Authorizations
+  alias Pinha.Providers.LinkHandler
 
   def show(conn, _params) do
     render_settings(conn, nil)
@@ -49,6 +52,46 @@ defmodule PinhaWeb.SettingsController do
       Map.take(params["user"], ["username", :username])
     else
       %{"username" => params["username"]}
+    end
+  end
+
+  @doc """
+  Starts the authorization that links a provider account.
+
+  Relinking to a different identity counts as unlinking the old one, which
+  the handler does when the provider says who the token belongs to.
+  """
+  def connect_provider(conn, %{"provider" => name}) do
+    user = conn.assigns.current_user
+
+    with {:ok, provider} <- Providers.fetch(name),
+         {:ok, url} <-
+           Authorizations.start(user, provider, LinkHandler, %{"return_to" => "/settings"}) do
+      conn
+      |> Audit.put("provider_account.link_started", user, %{provider: provider.name()})
+      |> redirect(external: url)
+    else
+      :error -> fail(conn, 404, "no such provider")
+      {:error, _changeset} -> fail(conn, 500, "could not start the authorization")
+    end
+  end
+
+  def disconnect_provider(conn, %{"provider" => name}) do
+    user = conn.assigns.current_user
+
+    with {:ok, provider} <- Providers.fetch(name),
+         {:ok, account} <- Providers.Accounts.unlink(user, provider.name()) do
+      conn
+      |> Audit.put("provider_account.unlinked", user, %{
+        provider: account.provider,
+        provider_account_id: account.id,
+        login: account.login
+      })
+      |> put_flash(:info, "Unlinked #{provider.label()}. Mirrors it connected are disabled.")
+      |> redirect(to: "/settings")
+    else
+      :error -> fail(conn, 404, "no such provider")
+      {:error, :not_linked} -> fail(conn, 404, "that provider is not linked")
     end
   end
 
@@ -198,7 +241,11 @@ defmodule PinhaWeb.SettingsController do
   defp render_settings(conn, new_token, new_invite \\ nil, username_changeset \\ nil) do
     user = conn.assigns.current_user
 
+    accounts = Providers.Accounts.for_user(user)
+
     render(conn, :show,
+      providers:
+        Enum.map(Providers.configured(), &%{provider: &1, account: Map.get(accounts, &1.name())}),
       credentials: Accounts.list_credentials(user),
       tokens: Accounts.list_api_tokens(user),
       ssh_keys: Accounts.list_ssh_keys(user),

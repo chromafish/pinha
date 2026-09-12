@@ -17,6 +17,7 @@ defmodule PinhaWeb.Layouts do
   attr :up, :string, default: nil, doc: "path the `u` key walks up to"
   attr :status, :string, default: nil, doc: "extra reading on the status bar"
   attr :current_user, :map, default: nil, doc: "who is signed in, if anyone"
+  attr :flash, :map, default: %{}, doc: "what the last request wants to say"
 
   slot :inner_block, required: true
   slot :trail, doc: "link trail shown on the header line in place of the title"
@@ -39,6 +40,16 @@ defmodule PinhaWeb.Layouts do
       </header>
 
       <div class="region">
+        <div :if={notices(@flash) != []} class="notices">
+          <p
+            :for={{level, message} <- notices(@flash)}
+            class={["notice", "notice-" <> level]}
+            role="alert"
+          >
+            {message}
+          </p>
+        </div>
+
         {render_slot(@inner_block)}
       </div>
 
@@ -54,5 +65,13 @@ defmodule PinhaWeb.Layouts do
       </footer>
     </div>
     """
+  end
+
+  # What a redirect left behind, in the order a reader wants it: the failure
+  # first, since that is the one that needs doing something about.
+  defp notices(flash) do
+    for level <- ["error", "info"],
+        message = Phoenix.Flash.get(flash, level),
+        do: {level, message}
   end
 end

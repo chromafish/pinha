@@ -1,7 +1,11 @@
 defmodule PinhaWeb.SettingsControllerTest do
   use PinhaWeb.ConnCase, async: false
 
+  import Pinha.ProvidersFixtures
+
   alias Pinha.Accounts
+  alias Pinha.Mirroring
+  alias Pinha.Providers
 
   describe "GET /settings" do
     test "lists the passkeys and says why a token exists", %{conn: conn, user: user} do
@@ -18,6 +22,58 @@ defmodule PinhaWeb.SettingsControllerTest do
 
     test "is refused to a signed-out browser" do
       assert build_conn() |> get("/settings") |> redirected_to() == "/signin"
+    end
+  end
+
+  describe "linked accounts" do
+    test "offers to connect a configured provider, and nothing when none is", %{conn: conn} do
+      html = conn |> get("/settings") |> html_response(200)
+
+      assert html =~ ~s(id="providers")
+      assert html =~ "GitHub"
+      assert html =~ "not linked"
+      assert html =~ ~s(id="link-provider-github")
+
+      put_github_env(client_secret: nil)
+
+      refute signed_in_conn() |> get("/settings") |> html_response(200) =~ ~s(id="providers")
+    end
+
+    test "starts the authorization that links one", %{conn: conn} do
+      conn = post(conn, "/settings/providers/github")
+
+      assert redirected_to(conn) =~ "https://github.test/login/oauth/authorize"
+    end
+
+    test "shows a linked account and lets the user unlink it", %{conn: conn, user: user} do
+      account = github_account_fixture(user)
+
+      html = conn |> get("/settings") |> html_response(200)
+      assert html =~ "octo"
+      assert html =~ ~s(id="unlink-provider-github")
+
+      conn = signed_in_conn() |> delete("/settings/providers/github")
+
+      assert redirected_to(conn) == "/settings"
+      assert Providers.Accounts.get(user, "github") == nil
+      assert account.login == "octo"
+    end
+
+    test "unlinking disables the mirrors that account connected", %{conn: conn, user: user} do
+      repo = seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}], user)
+      account = github_account_fixture(user)
+      mirror = mirror_fixture(repo, user, account)
+
+      delete(conn, "/settings/providers/github")
+
+      # Every subscriber gets the event as its own job.
+      jobs = Pinha.Repo.all(Oban.Job)
+      assert length(jobs) == length(Providers.subscribers())
+      Enum.each(jobs, &assert(:ok = Providers.EventWorker.perform(&1)))
+
+      mirror = Mirroring.get(mirror.id)
+      assert mirror.state == "disabled"
+      assert mirror.disabled_reason == "account_unlinked"
     end
   end
 

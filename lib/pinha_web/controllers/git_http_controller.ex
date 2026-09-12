@@ -17,6 +17,7 @@ defmodule PinhaWeb.GitHttpController do
   alias Pinha.Git.PktLine
   alias Pinha.Git.Transport
   alias Pinha.Maintenance
+  alias Pinha.Mirroring
   alias Pinha.Repos
   alias PinhaWeb.Observability
 
@@ -100,8 +101,8 @@ defmodule PinhaWeb.GitHttpController do
     try do
       case stash_body(conn, input) do
         {:ok, conn} ->
-          conn = conn |> record(service, input) |> stream(repo, service, input)
-          if service == "git-receive-pack", do: Maintenance.after_receive(repo)
+          {conn, status} = conn |> record(service, input) |> stream(repo, service, input)
+          if service == "git-receive-pack" and status == 0, do: after_receive(conn, repo)
           conn
 
         {:error, reason} ->
@@ -122,17 +123,31 @@ defmodule PinhaWeb.GitHttpController do
 
     case Transport.rpc(repo.dir, service, input, [env: protocol_env(conn)], conn, &send_data/2) do
       {:ok, conn, 0, _stderr} ->
-        conn
+        {conn, 0}
 
       {:ok, conn, status, stderr} ->
         # git's own account of the failure rides on this request's widelog
         # line, next to the repo and the refs it was asked for.
-        conn
-        |> put_private(:pinha_git_status, status)
-        |> put_private(:pinha_git_stderr, stderr)
+        conn =
+          conn
+          |> put_private(:pinha_git_status, status)
+          |> put_private(:pinha_git_stderr, stderr)
+
+        {conn, status}
 
       {:error, reason, conn} ->
-        put_private(conn, :pinha_git_stderr, "transport failed: #{inspect(reason)}")
+        {put_private(conn, :pinha_git_stderr, "transport failed: #{inspect(reason)}"), 1}
+    end
+  end
+
+  # Only a receive-pack that exited 0 changed anything: upkeep and a mirror
+  # sync follow a write that happened, not one git refused.
+  defp after_receive(conn, repo) do
+    Maintenance.after_receive(repo)
+
+    case conn.private[:pinha_refs] do
+      [_ | _] -> Mirroring.after_write(repo)
+      _ -> :ok
     end
   end
 

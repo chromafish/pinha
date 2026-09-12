@@ -3,6 +3,8 @@ defmodule PinhaWeb.RepoHTML do
 
   use PinhaWeb, :html
 
+  alias Pinha.Mirroring.Mirror
+
   embed_templates "repo_html/*"
 
   attr :kind, :atom, required: true, values: [:git, :jj, :jj_via_git]
@@ -28,6 +30,25 @@ defmodule PinhaWeb.RepoHTML do
   end
 
   def jj_history?(kind), do: kind in [:jj, :jj_via_git]
+
+  @doc "What a mirror's state means, in words."
+  def mirror_state_label(%{state: "active"}), do: "active"
+  def mirror_state_label(%{state: "awaiting_access"}), do: "awaiting access"
+
+  def mirror_state_label(%{state: "disabled"} = mirror),
+    do: "disabled — " <> mirror_reason_label(mirror.disabled_reason)
+
+  @doc "What disabled a mirror, in words."
+  def mirror_reason_label("user"), do: "switched off here"
+  def mirror_reason_label("repository_gone"), do: "the repository is gone"
+  def mirror_reason_label("owner_changed"), do: "the repository changed owner"
+  def mirror_reason_label("account_unlinked"), do: "the connecting account was unlinked"
+  def mirror_reason_label("access_lost"), do: "the connecting user lost write access"
+  def mirror_reason_label("installation_removed"), do: "the app was removed"
+  def mirror_reason_label("installation_suspended"), do: "the app is suspended"
+  def mirror_reason_label("target_unreachable"), do: "the target is out of reach"
+  def mirror_reason_label("push_rejected"), do: "the provider refused the push"
+  def mirror_reason_label(_reason), do: "unknown"
 
   defp repository_kind_label(:git), do: "Git"
   defp repository_kind_label(:jj), do: "Jujutsu"

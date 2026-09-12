@@ -1,4 +1,6 @@
 defmodule Pinha.ReposTest do
+  # Deleting a repository removes its mirror, which is a database row.
+  use Pinha.DataCase, async: false
   use Pinha.RepoCase, async: false
 
   alias Pinha.Git

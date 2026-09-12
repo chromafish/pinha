@@ -1,0 +1,157 @@
+= Repository mirroring
+:revdate: 2026-09-15
+:status: Draft
+:toc:
+:sectnums:
+
+== Context
+
+A repository hosted on Pinha can keep a read-only copy on another forge. Pinha stays the source of truth: the copy is overwritten on every sync and nothing flows back.
+
+== Scope
+
+* One-way mirror of a repository's branches or bookmarks and tags to one target, synchronized in the background after each write, as a capability of link:0005.pinha.provider.adoc[Provider] with GitHub first.
+* Owner-facing connect, enable, disable, and sync controls on the repository page, showing the target, its state, the last successful sync, and the latest failure.
+
+== Abstractions
+
+=== Repository
+
+See link:0001.pinha.git-hosting.adoc[Repository hosting], which defines the `pinha.id` a mirror follows and the reference snapshot it copies. A repository has at most one mirror.
+
+=== User
+
+See link:0002.pinha.account.adoc[Account]. The owner connects the mirror; the owner or an admin may enable, disable, disconnect, or sync it.
+
+=== Provider, provider account, authorization
+
+See link:0005.pinha.provider.adoc[Provider].
+
+=== Mirroring capability
+
+What a provider implements to support mirroring: connecting a target, checking the connecting user can still write it, preparing a push with a short-lived credential, and telling terminal failures from transient ones. The rest of this spec is provider-independent.
+
+=== Mirror
+
+A record linking a repository's ID to one target on one provider, with the user and provider account that connected it, its state, and the outcome of the last sync. It holds no credentials.
+
+A mirror is `active`, `awaiting_access` (connected, but the provider cannot reach the target yet), or `disabled` with a reason the page explains.
+
+=== Sync
+
+One background job that makes the target's branches and tags equal to the repository's, including force-updates and deletions.
+
+== Mechanics
+
+=== Connection check
+
+Enabling and every sync check, whoever the actor, that:
+
+* the repository with the mirror's ID still exists under its name;
+* its owner is still the user who connected the mirror;
+* that user's provider account is still the one the mirror was connected with;
+* for an organization target, that user still has write access there.
+
+Ownership can change outside Pinha's controls and access can change on GitHub, so the check runs every time. A definite failure disables the mirror. An error while asking the provider is a transient failure. An admin cannot enable a mirror that fails the check, since that would push under someone else's access.
+
+=== Connecting a GitHub target
+
+The owner must have linked GitHub. They choose an account (their own or an organization) and either a new repository or an existing one. New repositories are private, with issues, projects, and wiki off unless the owner changes it. Choosing an existing repository requires confirming that its branches and tags will be replaced.
+
+Connecting verifies that:
+
+* the GitHub user who authorized is the linked account;
+* the signed-in user still owns the repository, and it has no mirror yet;
+* a personal target is the user's own account, since GitHub creates personal repositories under whoever authorized;
+* the app is installed on the chosen account;
+* the user may create an organization repository, or has admin access to the existing one.
+
+An existing repository outside the installation leaves the mirror `awaiting_access`, with a link to the installation's settings on GitHub and a way to check again. A mirror that becomes `active` syncs right away.
+
+=== Syncing
+
+A sync:
+
+* runs for one repository at a time, and a burst of writes collapses into one pending sync;
+* copies one consistent reference snapshot and holds no repository lock while talking to GitHub;
+* makes the target equal to that snapshot: creating, updating, force-updating, and deleting branches and tags;
+* leaves a `jj` bookmark or tag that is conflicted in Pinha at its last GitHub value until the conflict is resolved;
+* never overwrites a GitHub reference that changed after the sync read it;
+* lands creations and updates before deletions, so a renamed branch reaches GitHub even when deleting the old name is refused;
+* is never killed by a timeout, which would leave git running, and ends on its own when the connection stalls;
+* records its outcome only if no sync of a newer snapshot has already recorded success.
+
+Syncs use installation tokens scoped to the target with only `contents` and `workflows` write.
+
+Pinha is authoritative. A repository restored from an older backup rewinds GitHub on its next sync, and commits pushed to GitHub directly are overwritten. A different repository placed under the same name never inherits the mirror, because the ID no longer matches.
+
+Pinha never sets the target's default branch; GitHub picks it for a new repository and the user changes it there. GitHub refuses to delete its default branch, which fails the sync with GitHub's message until the user picks another default or restores the branch.
+
+=== Failures
+
+Every failure is shown on the page with the provider's message or git's output, so the owner can see what went wrong. Nothing is retried automatically.
+
+* Terminal failures disable the mirror: a failing connection check, the installation removed or suspended, the target gone or out of reach, and pushes GitHub rejects for their content, such as large files, secret scanning, or deleting the default branch. Writes stop syncing until someone presses Enable, which checks again.
+* Transient failures leave the mirror `active` with a Retry button: rate limits, server errors, network failures, and anything else. The next write syncs again too.
+
+A sync interrupted by a restart is shown as interrupted, with Retry.
+
+=== Triggers
+
+A sync starts after every write that changes a repository's references (link:0001.pinha.git-hosting.adoc[Repository hosting]), when a mirror becomes `active`, and when the owner or an admin presses Sync now or Retry. A write never waits for its sync, and a failing mirror never fails a write.
+
+The page shows the mirror as behind when the repository changed after the last successful sync.
+
+=== Events
+
+Provider events disable mirrors sooner: a removed or suspended installation, a target repository removed from the installation, deleted, or transferred, and an unlinked provider account. A renamed target updates its name. Events never enable a mirror, and the next sync catches anything a missed event would have.
+
+=== Disabling, ownership, and deletion
+
+Disabling and disconnecting leave the target untouched. Changing a repository's owner disables its mirror. Deleting a repository removes its mirror once the repository is gone from the listing, and never deletes the target.
+
+=== Repository page
+
+Everyone sees the target, its state, when it last synced, whether it is behind, when it last failed, and any names held by conflicts. The owner and admins also see failure messages and disabled reasons, and the controls: Sync now or Retry, Enable or Disable, Disconnect, and Check again while `awaiting_access`. Each control is audited.
+
+=== Operating
+
+The GitHub App needs `Contents: write`, `Workflows: write` (GitHub refuses pushes touching `.github/workflows` without it), and `Administration: write` (to create repositories), plus a subscription to the `repository` webhook event; the installation events reach every app without one.
+
+Each sync writes one widelog line and one span with the repository, target, trigger, outcome, reference counts, and any error.
+
+== Data Model
+
+`repo_mirrors` has a `bigserial` `id` primary key. Timestamps are UTC; the two compared to decide whether a mirror is behind keep microseconds, since a write and a snapshot can fall in the same second.
+
+[cols="2,2,1,5"]
+|===
+| Column | Type | Null | Notes
+
+| `repo_id` | `varchar(255)` | no | The repository's `pinha.id`.
+| `repo_name` | `varchar(255)` | no | Name the repository was last found under.
+| `provider` | `varchar(255)` | no | `CHECK (provider IN ('github'))`.
+| `installation_id` | `varchar(255)` | no | The provider's reference for minting credentials; for GitHub, the installation ID.
+| `target_id` | `varchar(255)` | no | The provider's stable repository ID.
+| `target_name` | `varchar(255)` | no | Display name, such as `octo/pinha`; refreshed on sync and on rename events.
+| `target_url` | `varchar(255)` | no |
+| `target_account_type` | `varchar(255)` | no | `CHECK (target_account_type IN ('user', 'organization'))`.
+| `connected_by_user_id` | `bigint` | yes | References `users(id)`, `ON DELETE SET NULL`. Null fails the connection check.
+| `provider_account_id` | `bigint` | yes | References `provider_accounts(id)`, `ON DELETE SET NULL`. Null fails the connection check.
+| `state` | `varchar(255)` | no | `CHECK (state IN ('active', 'awaiting_access', 'disabled'))`.
+| `disabled_reason` | `varchar(255)` | yes | `CHECK (disabled_reason IN ('user', 'repository_gone', 'owner_changed', 'account_unlinked', 'access_lost', 'installation_removed', 'installation_suspended', 'target_unreachable', 'push_rejected'))`.
+| `held_refs` | `text[]` | no | Default `'{}'`. Full reference names held at their GitHub value by conflicts.
+| `last_written_at` | `timestamp(6)` | yes | Set by every reference-changing write to the repository.
+| `synced_snapshot_at` | `timestamp(6)` | yes | When the snapshot of the last successful sync was taken.
+| `last_synced_at` | `timestamp(0)` | yes | When the last successful sync finished.
+| `last_failed_at` | `timestamp(0)` | yes |
+| `last_failure` | `text` | yes | The provider's message or git's scrubbed output. Cleared by a successful sync.
+| `inserted_at` | `timestamp(0)` | no |
+| `updated_at` | `timestamp(0)` | no |
+|===
+
+Constraints: `CHECK ((state = 'disabled') = (disabled_reason IS NOT NULL))`.
+
+Indexes: unique (`repo_id`); unique (`provider`, `target_id`), so two repositories never mirror to one target; (`provider`, `installation_id`) for installation events; (`provider_account_id`); (`connected_by_user_id`).
+
+A mirror is behind when `last_written_at` is later than `synced_snapshot_at`, or when it has never synced.

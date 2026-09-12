@@ -20,6 +20,7 @@ defmodule Pinha.Ssh.Channel do
   alias Pinha.Git
   alias Pinha.Git.PktLine
   alias Pinha.Maintenance
+  alias Pinha.Mirroring
   alias Pinha.Repos
   alias Pinha.Ssh
   alias Pinha.Widelog
@@ -309,6 +310,7 @@ defmodule Pinha.Ssh.Channel do
   defp finish(state, status) do
     if state.repo && state.subcommand == "receive-pack" && status == 0 do
       Maintenance.after_receive(state.repo)
+      if state.refs not in [nil, []], do: Mirroring.after_write(state.repo)
     end
 
     report(state, status)

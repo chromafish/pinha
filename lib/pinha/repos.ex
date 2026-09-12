@@ -14,6 +14,7 @@ defmodule Pinha.Repos do
   alias Pinha.Config
   alias Pinha.Git
   alias Pinha.Repos.Repo
+  alias Pinha.Repos.Snapshot
 
   @name_regex ~r/\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z/
   @default_description "Unnamed repository; edit this file 'description' to name the repository."
@@ -125,18 +126,30 @@ defmodule Pinha.Repos do
   Hands a repo to the user with this username.
 
   Written with `git config`, so the repo on disk stays the record of who owns
-  it. Called from the repo page and from the release console.
+  it. Called from the repo page and from the release console. A mirror pushes
+  under its connecting owner's access, so a change of owner disables the
+  repository's mirror first, and the owner is not written when that fails.
   """
   @spec set_owner(String.t(), String.t()) ::
           {:ok, Repo.t()}
           | {:error, :invalid_name | :invalid_repo | :not_found | :no_such_user | :failed}
   def set_owner(name, username) when is_binary(username) do
     with {:ok, repo} <- fetch(name),
-         {:ok, user} <- fetch_user(username) do
+         {:ok, user} <- fetch_user(username),
+         :ok <- disable_mirror_for_owner(repo, user) do
       case Git.run(repo.dir, ["config", "pinha.owner", user.uid]) do
         {:ok, _} -> {:ok, %{repo | owner_uid: user.uid}}
         {:error, _} -> {:error, :failed}
       end
+    end
+  end
+
+  defp disable_mirror_for_owner(%Repo{owner_uid: uid}, %User{uid: uid}), do: :ok
+
+  defp disable_mirror_for_owner(repo, _user) do
+    case Pinha.Mirroring.disable_for_repo(repo, :owner_changed) do
+      :ok -> :ok
+      {:error, _} -> {:error, :failed}
     end
   end
 
@@ -151,7 +164,8 @@ defmodule Pinha.Repos do
   Renames `<name>.git` out of the listing, then removes it in the background.
 
   New requests stop resolving the repo immediately while in-flight ones keep
-  reading the renamed directory until they finish.
+  reading the renamed directory until they finish. The repository's mirror is
+  removed once the rename has succeeded; its target is never touched.
   """
   @spec delete(String.t()) :: :ok | {:error, :invalid_name | :not_found | :failed}
   def delete(name) do
@@ -159,6 +173,69 @@ defmodule Pinha.Repos do
       Pinha.Repos.Creator.delete(name)
     end
   end
+
+  @doc """
+  A fresh repository ID: `r_` and 128 random bits in lowercase base32.
+
+  The name locates a repository; the ID tells it apart from a different one
+  that later takes the same name.
+  """
+  @spec generate_id() :: String.t()
+  def generate_id do
+    "r_" <> (16 |> :crypto.strong_rand_bytes() |> Base.encode32(padding: false, case: :lower))
+  end
+
+  @doc """
+  The repository with its `pinha.id`, minting one when it has none.
+
+  Only code that keys database rows by the ID calls this; listing and
+  browsing read the ID and never write it. Minting is serialized with create
+  and delete through `Pinha.Repos.Creator`, so two callers cannot mint two IDs
+  for one repository.
+  """
+  @spec ensure_id(Repo.t()) :: {:ok, Repo.t()} | {:error, :not_found | :failed}
+  def ensure_id(%Repo{id: id} = repo) when is_binary(id), do: {:ok, repo}
+  def ensure_id(%Repo{name: name}), do: Pinha.Repos.Creator.ensure_id(name)
+
+  @doc """
+  Every branch or bookmark under `refs/heads/*` and tag under `refs/tags/*`
+  with the object ID it names, read with one `git for-each-ref`.
+
+  `taken_at` is read before the references, so a write recorded before it is
+  in the snapshot. `conflicted` lists the full names of Jujutsu bookmarks and
+  tags whose native target is conflicted; with no native view on this server
+  it is always empty. Code that copies references elsewhere reads this and
+  never the ref files.
+  """
+  @spec snapshot(Repo.t()) :: {:ok, Snapshot.t()} | {:error, :failed}
+  def snapshot(%Repo{dir: dir}) do
+    taken_at = DateTime.utc_now()
+
+    case Git.run(dir, [
+           "for-each-ref",
+           "--format=%(objectname) %(refname)",
+           "refs/heads/",
+           "refs/tags/"
+         ]) do
+      {:ok, out} ->
+        refs =
+          out
+          |> String.split("\n", trim: true)
+          |> Map.new(fn line ->
+            [oid, ref] = String.split(line, " ", parts: 2)
+            {ref, oid}
+          end)
+
+        {:ok, %Snapshot{taken_at: taken_at, refs: refs, conflicted: []}}
+
+      {:error, _} ->
+        {:error, :failed}
+    end
+  end
+
+  @doc "The `pinha.id` entry of a repo's config, read from the file itself."
+  @spec id(String.t()) :: String.t() | nil
+  def id(dir), do: pinha_config(dir, "id")
 
   @doc "True when the directory looks like a bare repository."
   @spec bare_repo?(String.t()) :: boolean()
@@ -248,6 +325,7 @@ defmodule Pinha.Repos do
     %Repo{
       name: name,
       dir: dir,
+      id: id(dir),
       description: description(dir),
       owner_uid: owner_uid(dir),
       kind: kind(dir)

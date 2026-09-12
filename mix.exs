@@ -77,7 +77,11 @@ defmodule Pinha.MixProject do
       {:opentelemetry_bandit, "~> 0.2"},
       {:opentelemetry_ecto, "~> 1.2"},
       {:earmark, "~> 1.4"},
-      {:html_sanitize_ex, "~> 1.4"}
+      {:html_sanitize_ex, "~> 1.4"},
+      # Background work in Postgres: mirror syncs and provider events.
+      {:oban, "~> 2.24"},
+      # Provider APIs, stubbed with `Req.Test` in the suite.
+      {:req, "~> 0.7.4"}
     ]
   end
 

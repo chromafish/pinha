@@ -39,3 +39,6 @@ pinha-*.tar
 # Editor swap files.
 *.swp
 *.swo
+
+.env
+.env.prd 

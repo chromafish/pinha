@@ -12,6 +12,7 @@ defmodule PinhaWeb.RepoController do
   alias Pinha.Accounts
   alias Pinha.Audit
   alias Pinha.Git
+  alias Pinha.Mirroring
   alias Pinha.Parallel
   alias Pinha.Repos
 
@@ -77,8 +78,15 @@ defmodule PinhaWeb.RepoController do
             fn -> fetch_readme(repo, tree_target) end
           ])
 
+        mirror = Mirroring.for_repo(repo)
+
         render(conn, :show,
           repo: repo,
+          mirror: mirror,
+          mirror_access_url:
+            mirror && mirror.state == "awaiting_access" &&
+              Mirroring.access_settings_url(mirror),
+          mirror_providers: mirror_providers(repo, conn.assigns.current_user, mirror),
           owner: owner,
           may_write: may_write,
           users: users,
@@ -230,6 +238,21 @@ defmodule PinhaWeb.RepoController do
       clone_url: PinhaWeb.Helpers.clone_url(repo.name),
       ssh_clone_url: PinhaWeb.Helpers.ssh_clone_url(repo.name)
     }
+  end
+
+  # The connect form is the owner's, and only for a provider they have
+  # linked; an unconfigured provider is not listed at all.
+  defp mirror_providers(_repo, _user, mirror) when not is_nil(mirror), do: []
+
+  defp mirror_providers(repo, user, _mirror) do
+    if Mirroring.may_connect?(repo, user) do
+      accounts = Pinha.Providers.Accounts.for_user(user)
+
+      for provider <- Pinha.Providers.with_capability(Mirroring.Capability),
+          do: %{provider: provider, account: Map.get(accounts, provider.name())}
+    else
+      []
+    end
   end
 
   defp presentation_kind(%{kind: :jj}, _history_kind), do: :jj

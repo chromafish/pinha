@@ -46,6 +46,13 @@ defmodule PinhaWeb.Router do
     plug :put_secure_browser_headers, @no_store
   end
 
+  # A provider's webhook holds no session and answers no CSRF token: the
+  # delivery is verified against the webhook secret instead, over its exact
+  # bytes, which is why the parsers leave the body alone.
+  pipeline :webhook do
+    plug :accepts, ["json"]
+  end
+
   # Git clients negotiate nothing and hold no cookie: these routes speak the
   # smart HTTP protocol and authenticate with a token over HTTP Basic.
   pipeline :git do
@@ -89,11 +96,25 @@ defmodule PinhaWeb.Router do
     post "/settings/tokens", SettingsController, :create_token
     post "/settings/ssh-keys", SettingsController, :create_ssh_key
     delete "/settings/ssh-keys/:id", SettingsController, :delete_ssh_key
+    post "/settings/providers/:provider", SettingsController, :connect_provider
+    delete "/settings/providers/:provider", SettingsController, :disconnect_provider
     post "/settings/invites", SettingsController, :create_invite
     delete "/settings/invites/:id", SettingsController, :delete_invite
     delete "/settings/tokens/:id", SettingsController, :delete_token
     delete "/settings/passkeys/:id", SettingsController, :delete_credential
     delete "/signout", AuthController, :delete
+  end
+
+  scope "/integrations", PinhaWeb do
+    pipe_through :webhook
+
+    post "/:provider/webhook", IntegrationController, :webhook
+  end
+
+  scope "/integrations", PinhaWeb do
+    pipe_through [:browser, :signed_in]
+
+    get "/:provider/callback", IntegrationController, :callback
   end
 
   scope "/", PinhaWeb do
@@ -121,6 +142,12 @@ defmodule PinhaWeb.Router do
     pipe_through [:browser, :signed_in]
 
     post "/:repo/owner", RepoController, :set_owner
+    post "/:repo/mirror", MirrorController, :connect
+    post "/:repo/mirror/sync", MirrorController, :sync
+    post "/:repo/mirror/enable", MirrorController, :enable
+    post "/:repo/mirror/disable", MirrorController, :disable
+    post "/:repo/mirror/check", MirrorController, :check
+    delete "/:repo/mirror", MirrorController, :disconnect
     get "/:repo", RepoController, :show
     get "/:repo/tree", BrowseController, :tree
     get "/:repo/tree/:rev", BrowseController, :tree

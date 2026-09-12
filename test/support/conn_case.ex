@@ -48,6 +48,10 @@ defmodule PinhaWeb.ConnCase do
     user = Pinha.AccountsFixtures.user_fixture(%{admin: true})
     Process.put(:pinha_test_user, user)
 
+    # A write hands its upkeep and its mirror sync to supervised tasks. Let
+    # them finish before the sandbox connection and the repo root go away.
+    on_exit(fn -> Pinha.RepoCase.await_background_tasks(5_000) end)
+
     {:ok,
      conn: log_in_user(Phoenix.ConnTest.build_conn(), user),
      user: user,

@@ -1,10 +1,11 @@
 defmodule Pinha.Repos.Creator do
   @moduledoc """
-  Serializes create and delete so the repo root never shows a half-built repo.
+  Serializes create, delete, and minting a repository ID, so the repo root
+  never shows a half-built repo and one repository never gets two IDs.
 
   Create initializes into a temporary directory and atomically renames it into
-  place; delete renames out of the listing and removes the leftovers in a
-  supervised background task.
+  place; delete renames out of the listing, removes the repository's mirror,
+  and removes the leftovers in a supervised background task.
   """
 
   use GenServer
@@ -29,6 +30,9 @@ defmodule Pinha.Repos.Creator do
   @spec delete(String.t()) :: :ok | {:error, :not_found | :failed}
   def delete(name), do: GenServer.call(__MODULE__, {:delete, name}, 30_000)
 
+  @spec ensure_id(String.t()) :: {:ok, Repo.t()} | {:error, :not_found | :failed}
+  def ensure_id(name), do: GenServer.call(__MODULE__, {:ensure_id, name}, 30_000)
+
   @impl true
   def init(:ok) do
     {:ok, :ok, {:continue, :sweep}}
@@ -50,6 +54,10 @@ defmodule Pinha.Repos.Creator do
     {:reply, do_delete(name), state}
   end
 
+  def handle_call({:ensure_id, name}, _from, state) do
+    {:reply, do_ensure_id(name), state}
+  end
+
   defp do_create(name, owner_uid) do
     root = Config.repo_root()
     target = Repos.dir(name)
@@ -59,15 +67,25 @@ defmodule Pinha.Repos.Creator do
       {:error, :exists}
     else
       tmp = Path.join(root, @tmp_prefix <> random_suffix())
+      id = Repos.generate_id()
 
       with :ok <- File.mkdir_p(tmp),
            {:ok, _} <- Git.run(root, ["init", "--bare", "--quiet", "--initial-branch=main", tmp]),
            {:ok, _} <- Git.run(tmp, ["config", "http.receivepack", "true"]),
            {:ok, _} <- Git.run(tmp, ["config", "pinha.kind", "git"]),
+           {:ok, _} <- Git.run(tmp, ["config", "pinha.id", id]),
            {:ok, _} <- write_owner(tmp, owner_uid),
            :ok <- File.rm(Path.join(tmp, "description")),
            :ok <- File.rename(tmp, target) do
-        {:ok, %Repo{name: name, dir: target, description: nil, owner_uid: owner_uid, kind: :git}}
+        {:ok,
+         %Repo{
+           name: name,
+           dir: target,
+           id: id,
+           description: nil,
+           owner_uid: owner_uid,
+           kind: :git
+         }}
       else
         error ->
           Logger.error("repo create failed for #{name}: #{inspect(error)}")
@@ -87,9 +105,11 @@ defmodule Pinha.Repos.Creator do
 
     if Repos.bare_repo?(dir) do
       trash = Path.join(Config.repo_root(), @trash_prefix <> random_suffix())
+      id = Repos.id(dir)
 
       case File.rename(dir, trash) do
         :ok ->
+          remove_mirror(name, id)
           remove_async(trash)
           :ok
 
@@ -99,6 +119,39 @@ defmodule Pinha.Repos.Creator do
       end
     else
       {:error, :not_found}
+    end
+  end
+
+  # The repository is already gone from the listing. A mirror that outlives a
+  # failure here fails its next connection check, since no repository answers
+  # to its ID any more.
+  defp remove_mirror(_name, nil), do: :ok
+
+  defp remove_mirror(name, id) do
+    Pinha.Mirroring.delete_for_repo_id(id)
+  rescue
+    error ->
+      Logger.error("removing the mirror of #{name} failed: #{inspect(error.__struct__)}")
+      :ok
+  end
+
+  # Re-read under this process, so a caller holding a stale struct cannot
+  # overwrite an ID another caller minted a moment ago.
+  defp do_ensure_id(name) do
+    dir = Repos.dir(name)
+
+    cond do
+      not Repos.bare_repo?(dir) ->
+        {:error, :not_found}
+
+      Repos.id(dir) ->
+        Repos.fetch(name)
+
+      true ->
+        case Git.run(dir, ["config", "pinha.id", Repos.generate_id()]) do
+          {:ok, _} -> Repos.fetch(name)
+          {:error, _} -> {:error, :failed}
+        end
     end
   end
 

@@ -47,10 +47,10 @@ defmodule Pinha.RepoCase do
 
   Each commit is `%{message: ..., change_id: ..., files: %{path => content}}`,
   applied in order on the default branch. An optional `author_date` overrides
-  the fixed test date.
+  the fixed test date. An `owner` is the user the repository is created for.
   """
-  def seed_repo!(name, commits) do
-    repo = create_repo!(name)
+  def seed_repo!(name, commits, owner \\ nil) do
+    repo = create_repo!(name, owner)
     work = Path.join(System.tmp_dir!(), "pinha-work-" <> random())
     git!(File.cwd!(), ["clone", "--quiet", repo.dir, work])
 

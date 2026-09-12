@@ -1,0 +1,160 @@
+= Provider
+:revdate: 2026-09-15
+:status: Draft
+:toc:
+:sectnums:
+
+== Context
+
+Some features reach past Pinha into another forge: mirroring a repository to GitHub first, and GitHub Actions later. Each needs to know who a Pinha user is on that forge, where Pinha may act there, and a credential to act with. This spec defines that once.
+
+== Scope
+
+* A provider abstraction that links Pinha users to their account on another forge, runs authorizations, receives the forge's events, and mints short-lived credentials for features built on it as capabilities.
+* GitHub as the first provider, through one GitHub App registered by the operator.
+
+== Abstractions
+
+=== User
+
+See link:0002.pinha.account.adoc[Account]. A user links at most one account per provider.
+
+=== Provider
+
+A forge Pinha integrates with, implemented as a module under `Pinha.Providers` that declares its name, whether the operator has configured it, and which capabilities it implements.
+
+=== Capability
+
+A behaviour a feature defines and a provider implements, such as mirroring in link:0006.pinha.provider.mirroring.adoc[Repository mirroring]. Features reach providers only through capabilities, so a second forge is a second implementation. An unconfigured provider offers no capabilities, and the UI shows no controls for them.
+
+=== Provider account
+
+A Pinha user's identity on a provider: its stable user ID and current login, and no tokens. An identity links to at most one Pinha user.
+
+=== Authorization
+
+One round trip through the provider's consent screen, started by a feature for a signed-in user, which hands the feature a user access token for the length of its work.
+
+=== Provider event
+
+Something the provider reports, such as an installation being removed, delivered to the features that subscribe to it.
+
+== Mechanics
+
+=== Linking an account
+
+`/settings` connects or unlinks each configured provider. Connecting runs an authorization and records who the token belongs to, refusing an identity already linked to another Pinha user. Relinking to a different identity counts as unlinking the old one. Features record which provider account they acted for and check it is still the user's link before acting again.
+
+=== Authorizations
+
+A pending authorization is bound to the user who started it, used once, and expires within minutes. The callback refuses one that is unknown, expired, or started by a different user than the one signed in, so an attacker cannot finish their own authorization in a victim's browser. The feature that started it names the code that handles the result, and providers never depend on features.
+
+The handler gets the user access token only while it does its work, and the token is revoked when it finishes. A declined authorization returns the user to where they started.
+
+=== Events
+
+A provider verifies every delivery, ignores duplicates, and hands each event to each subscriber as its own background job, so one failing subscriber affects no other and the provider never sees a failed delivery. Events only let features notice sooner: they never grant access, and everything they report is also detected when the feature next acts.
+
+=== Credentials
+
+* Tokens are never stored: not in the database, the session, a job, a file, or a log.
+* Tokens never appear in logs, spans, job error records, crash reports, or exception messages. That includes the authorization callback's query string, which tracing would otherwise record.
+* Processes that hold a token are hidden from runtime introspection. Request processes never hold one.
+* Git receives a token through its process environment only, never through arguments or files.
+* Every token is short-lived and asks only for the repositories and permissions its one task needs.
+
+=== GitHub
+
+==== The app
+
+The operator registers one GitHub App for the server. Registering it means:
+
+* turning on user authorization during installation, so installing and authorizing are one round trip, which also means GitHub accepts no setup URL;
+* a callback URL of `<base URL>/integrations/github/callback`;
+* a webhook URL of `<base URL>/integrations/github/webhook` with a secret, subscribed to the `repository` event; the `installation`, `installation_repositories`, and `github_app_authorization` events reach every app without a subscription;
+* the permissions the server's capabilities need, which today are mirroring's `Contents: write`, `Workflows: write`, and `Administration: write` (link:0006.pinha.provider.mirroring.adoc[Repository mirroring]) on top of the `Metadata: read` every app has;
+* a generated private key, kept as Credentials requires.
+
+The app's permissions are the union of what capabilities need. When a capability adds permissions, each installation's owner must accept them, and capabilities that don't need them keep working meanwhile.
+
+The app's private key is the only long-lived GitHub credential. Pinha uses it to mint installation tokens, which last an hour.
+
+==== Installations
+
+An installation belongs to one user or organization account. Pinha finds installations with the app's own credentials, so no user token is needed to know where the app is installed. A personal installation is usable only by the Pinha user linked to that GitHub account.
+
+An installation token acts as the app, not as any person, so GitHub cannot tell which Pinha user caused a request. A capability acting in an organization for a Pinha user therefore checks that user's access itself: with the user's token when connecting, and with the installation token before each later action.
+
+When the app is missing on an account, the authorization sends the user to install it. Handlers verify the installation landed on the account the user chose. An organization member who can only request an installation is told an owner must approve it first. Granting an existing installation more repositories happens on GitHub and doesn't return to Pinha, so capabilities offer a way to check again.
+
+==== Webhooks
+
+Pinha receives `installation`, `installation_repositories`, `repository`, and `github_app_authorization` events, verified against the webhook secret.
+
+==== Errors
+
+A removed or suspended installation, or a repository outside the installation, is terminal. Everything else, including rate limits, server errors, and network failures, is transient. Capabilities show the provider's message either way.
+
+=== Operating
+
+GitHub is configured with `PINHA_GITHUB_APP_ID`, `PINHA_GITHUB_APP_SLUG`, `PINHA_GITHUB_CLIENT_ID`, `PINHA_GITHUB_CLIENT_SECRET`, either `PINHA_GITHUB_PRIVATE_KEY_PATH` or `PINHA_GITHUB_PRIVATE_KEY` holding the PEM itself, and `PINHA_GITHUB_WEBHOOK_SECRET`. Missing any of them leaves the provider unconfigured, and every control that needs it stays hidden.
+
+Background work runs on Oban in Postgres. Jobs run once and are never retried automatically: failures are shown to a person, who retries when they choose. A job interrupted by a restart is recorded as interrupted.
+
+Provider API calls are traced without headers or bodies.
+
+== Data Model
+
+Every table has a `bigserial` `id` primary key. Timestamps are `timestamp(0)` in UTC (`:utc_datetime`) unless noted. `provider` columns hold a provider's name and are constrained to `'github'`; adding a provider widens the constraint.
+
+=== `provider_accounts`
+
+[cols="2,2,1,5"]
+|===
+| Column | Type | Null | Notes
+
+| `user_id` | `bigint` | no | References `users(id)`, `ON DELETE CASCADE`.
+| `provider` | `varchar(255)` | no | `CHECK (provider IN ('github'))`.
+| `external_id` | `varchar(255)` | no | The provider's stable user ID, stored as text.
+| `login` | `varchar(255)` | no | Refreshed whenever the user connects again.
+| `inserted_at` | `timestamp(0)` | no |
+| `updated_at` | `timestamp(0)` | no |
+|===
+
+Indexes: unique (`provider`, `external_id`); unique (`user_id`, `provider`).
+
+Relinking to a different identity deletes the row and inserts a new one, so its `id` changes.
+
+=== `provider_authorizations`
+
+[cols="2,2,1,5"]
+|===
+| Column | Type | Null | Notes
+
+| `state_hash` | `bytea` | no | SHA-256 of the `state` sent to the provider; 32 bytes.
+| `user_id` | `bigint` | no | References `users(id)`, `ON DELETE CASCADE`.
+| `provider` | `varchar(255)` | no | `CHECK (provider IN ('github'))`.
+| `handler` | `varchar(255)` | no | Module name of the handler.
+| `params` | `jsonb` | no | Default `'{}'`.
+| `expires_at` | `timestamp(0)` | no | Ten minutes after insert.
+| `inserted_at` | `timestamp(0)` | no |
+|===
+
+Indexes: unique (`state_hash`); (`expires_at`) for removing expired rows.
+
+=== `provider_deliveries`
+
+[cols="2,2,1,5"]
+|===
+| Column | Type | Null | Notes
+
+| `provider` | `varchar(255)` | no | `CHECK (provider IN ('github'))`.
+| `delivery_id` | `varchar(255)` | no | GitHub's `X-GitHub-Delivery`.
+| `inserted_at` | `timestamp(0)` | no |
+|===
+
+Indexes: unique (`provider`, `delivery_id`); (`inserted_at`) for pruning rows older than seven days.
+
+=== Oban
+
+`oban_jobs` and `oban_peers`, created by `Oban.Migration` at the version the pinned Oban release requires, in the same release migration as the tables above.

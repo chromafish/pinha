@@ -24,7 +24,26 @@ config :pinha,
   ssh_host_key_dir: Path.expand("tmp/test_ssh"),
   # Background processes stay idle during tests; the tests call them directly.
   maintenance_interval_ms: 3_600_000,
-  widelog: false
+  widelog: false,
+  # Jobs are inserted and run by the tests that want them, and a suite that
+  # shares its database with development must not discard another run's.
+  discard_interrupted_jobs: false
+
+config :pinha, Oban, testing: :manual
+
+# The suite never reaches GitHub: `Req.Test` answers every request, the git
+# target is a bare repository on disk, and `test_helper.exs` supplies the
+# app's private key.
+config :pinha, Pinha.Providers.GitHub,
+  app_id: "1",
+  app_slug: "pinha-test",
+  client_id: "Iv1.testclient",
+  client_secret: "test-client-secret",
+  webhook_secret: "test-webhook-secret",
+  api_url: "https://api.github.test",
+  web_url: "https://github.test",
+  git_url: "https://github.test",
+  req_options: [plug: {Req.Test, Pinha.Providers.GitHub}]
 
 # Print only warnings and errors during test
 config :logger, level: :warning

@@ -1,5 +1,5 @@
 = Repository hosting
-:revdate: 2026-09-12
+:revdate: 2026-09-14
 :status: Draft
 :toc:
 :sectnums:
@@ -53,7 +53,7 @@ The operator sets one repository root, such as `/srv/pinha`, with no nesting (`$
 
 ==== Create
 
-`POST /repos` accepts a `name` and `kind` from any authenticated user, who becomes the owner. An omitted kind means `git`, preserving the existing API and plain Git workflow. Pinha builds the complete repository in a temporary sibling directory, writes `pinha.kind` and `pinha.owner`, then atomically renames it to `<name>.git`. Concurrent creates of one name serialize and the loser receives `409`.
+`POST /repos` accepts a `name` and `kind` from any authenticated user, who becomes the owner. An omitted kind means `git`, preserving the existing API and plain Git workflow. Pinha builds the complete repository in a temporary sibling directory, writes `pinha.kind`, `pinha.owner`, and a fresh `pinha.id`, then atomically renames it to `<name>.git`. Concurrent creates of one name serialize and the loser receives `409`.
 
 For `git`, Pinha initializes an ordinary bare repository with HTTP receive enabled. `HEAD` may initially name an unborn branch, but Pinha creates no commit. For `jj`, Pinha initializes the Git commit backend and native operation/view state; its published view contains only Jujutsu's root commit and no bookmark or tag. The kind marker becomes visible only after the corresponding storage is complete.
 
@@ -65,15 +65,25 @@ An owner or admin may explicitly convert a Git repository to Jujutsu under its w
 
 A directory with invalid Git data, an unknown marker, or incomplete native state is reported as unavailable and is never silently repaired or reinitialized. Non-repository directories are skipped.
 
+==== Identity
+
+`pinha.id` is 128 random bits in lowercase base32 prefixed `r_`, minted at create and never reused. The name locates a repository and the ID tells one apart from another that later takes the same name, whether through delete and create, a hand-made directory, or a different repository's backup restored under that name. Restoring a repository's own backup brings back its own ID. Database rows about a repository, such as a mirror, are keyed by its ID. A repository predating the field has none until something needs it, and that code writes one under the repository write lock; listing and browsing never write it.
+
+==== Reference snapshot
+
+A reference snapshot is the list of every exported branch or bookmark under `refs/heads/*` and tag under `refs/tags/*` with the object ID each names, taken at one consistent moment. For a `jj` repository it also lists the bookmark and tag names whose native target is conflicted, which the Git projection omits. Pinha takes it under the repository read lock and refuses while a mutation journal awaits recovery, so it never reflects a half-applied write. Code that copies a repository's references elsewhere reads this snapshot and never the ref files directly.
+
+Every successful write that changes references, whether a Git receive, a native publication, a conversion, or a journal recovery that completes a write, enqueues a sync for a repository with an active mirror (link:0006.pinha.provider.mirroring.adoc[Repository mirroring]) after the write has completed and any lock it held is released.
+
 ==== Delete
 
-`DELETE /r/:repo` is allowed to the owner and admins. Pinha takes the repository write lock, renames `<name>.git` out of the listing so new requests stop resolving it while in-flight readers drain, then removes the renamed directory asynchronously. Rename is delete plus create; history is updated through the transport appropriate to its kind.
+`DELETE /r/:repo` is allowed to the owner and admins. Pinha takes the repository write lock, renames `<name>.git` out of the listing so new requests stop resolving it while in-flight readers drain, removes the repository's mirror once the rename has succeeded (link:0006.pinha.provider.mirroring.adoc[Repository mirroring]), then removes the renamed directory asynchronously. Rename is delete plus create; history is updated through the transport appropriate to its kind.
 
 === Access
 
 Every authenticated user may list, browse, fetch, and read raw files from every repository using a session, token, or SSH key. Git `receive-pack`, native publication, kind conversion, and deletion require the owner or an admin. Refusal is `403` over HTTP or a message on stderr with a non-zero SSH exit; no repository writer starts.
 
-Ownership lives in the bare Git `config` as `pinha.owner`, holding a user's stable `uid`, so a coherent filesystem restore carries its owner and username, email, or credential changes do not transfer ownership. Rendering an owner is one lookup by `uid`, batched for listings. An owner may be assigned with `Pinha.Repos.set_owner/2` from the release console or repository page; both accept a username and persist the corresponding `uid`, which the page also displays.
+Ownership lives in the bare Git `config` as `pinha.owner`, holding a user's stable `uid`, so a coherent filesystem restore carries its owner and username, email, or credential changes do not transfer ownership. Rendering an owner is one lookup by `uid`, batched for listings. An owner may be assigned with `Pinha.Repos.set_owner/2` from the release console or repository page; both accept a username, disable the repository's mirror (link:0006.pinha.provider.mirroring.adoc[Repository mirroring]), and write the corresponding `uid` under the repository write lock, which the page also displays.
 
 A repository with no owner, or with a `uid` that no longer exists, remains readable and is writable only by admins until one assigns an owner. The same authorization function gates HTTP, SSH, Git receive, native publication, conversion, and deletion.
 
@@ -124,7 +134,7 @@ The Ed25519 host key is generated once with mode `0600` in a configured director
 
 === Operating
 
-Deployment is one Pinha release plus the repository root. Configuration provides the root path, HTTP listen address, public base URL, SSH port and host-key directory, advertised SSH host, the pinned Jujutsu adapter version, and optional OTLP endpoint and credentials. Adapter compatibility is checked only for Jujutsu repositories. A native format upgrade snapshots the complete directory and runs under its write lock before exposing the new view; it never rewrites a Git-kind repository.
+Deployment is one Pinha release plus the repository root. Configuration provides the root path, HTTP listen address, public base URL, SSH port and host-key directory, advertised SSH host, the pinned Jujutsu adapter version, optional OTLP endpoint and credentials, and the provider settings in link:0005.pinha.provider.adoc[Provider]. Adapter compatibility is checked only for Jujutsu repositories. A native format upgrade snapshots the complete directory and runs under its write lock before exposing the new view; it never rewrites a Git-kind repository.
 
 Logs go to stdout as JSON with one canonical widelog per HTTP request or SSH session. It records timestamp, event, repository kind and presentation, transport (`web`, `git-http`, `git-ssh`, `jj-http`, or `jj-ssh`), route or exec verb, revision when applicable, status, duration, byte counts, authenticated user, and user agent or peer. A native mutation also records its operation/view token and a bounded summary of changed heads and references. Subprocess or adapter errors are captured into that event rather than interleaved as unstructured output.
 
@@ -134,7 +144,7 @@ Backup and restore copy or snapshot each complete `<name>.git` directory. A Git 
 
 == Data Model
 
-Every repository is rooted at `$ROOT/<name>.git` and contains a valid bare Git layout with `HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, and optional `description`. Its `config` contains `http.receivepack true`, `pinha.kind` (`git` or `jj`), and, when assigned, `pinha.owner` with the owner's `uid`. An absent kind means `git`; an unknown value is invalid.
+Every repository is rooted at `$ROOT/<name>.git` and contains a valid bare Git layout with `HEAD`, `config`, `objects/`, `refs/heads/`, `refs/tags/`, and optional `description`. Its `config` contains `http.receivepack true`, `pinha.kind` (`git` or `jj`), `pinha.id` once minted, and, when assigned, `pinha.owner` with the owner's `uid`. An absent kind means `git`; an unknown value is invalid.
 
 For kind `git`, the bare layout is complete authoritative storage. `HEAD`, branches, tags, objects, and reflogs retain their normal Git meaning, and `.pinha/jj/` is absent.
 

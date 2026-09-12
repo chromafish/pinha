@@ -117,7 +117,7 @@ mints invites at `/settings` and hands them over by whatever channel they
 already have with the person, since the server sends no mail. An invite is
 shown once, admits one account, and expires in a week.
 
-git clients can use a token minted at `/settings` instead. Your email is the username,
+git clients can use a token minted at `/settings` instead. Your email is the username, 
 the token is the password:
 
 ```sh
@@ -143,23 +143,9 @@ _build/prod/rel/pinha/bin/pinha rpc 'Pinha.Accounts.Registration.authorize("you@
 
 ## Operating
 
-Logs go to stdout as JSON, one canonical widelog line per request, `event`
-naming which kind it is: timestamp, transport (`http` or `ssh`), method, route,
-repo, rev, git protocol (`upload-pack`, `receive-pack`, or `none`), status,
-duration, request and response bytes, and user agent. An SSH session writes one
-line of the same shape per exec, carrying the peer address and git's exit status.
-Push lines also carry per-ref old and new tips, truncated after `:log_max_refs` refs.
+Logs go to stdout as JSON, one canonical widelog line per request.
 
-Traces are OpenTelemetry over OTLP. The HTTP surface comes from the events
-Phoenix, Bandit and Ecto already emit; neither git transport is Phoenix, so
-each carries spans of its own — one per advertisement, `upload-pack` or
-`receive-pack`, one per git subprocess, one per SSH session — naming the repo,
-the subcommand, the user, the bytes moved, and git's stderr when it failed.
-
-Without `HONEYCOMB_API_KEY` the spans are created and go nowhere, which is
-what a development machine wants; the suite never exports whatever is in the
-environment. There are no counters of the server's own, so how many pushes,
-how slow, and by whom is a query over the spans.
+Traces are OpenTelemetry over OTLP. 
 
 Maintenance runs in supervised background processes: a task after each
 receive runs `git gc --auto`, and a periodic job prunes and repacks every

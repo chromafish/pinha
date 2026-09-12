@@ -1,4 +1,4 @@
-<Layouts.app current_user={assigns[:current_user]} title="settings" up="/">
+<Layouts.app flash={@flash} current_user={assigns[:current_user]} title="settings" up="/">
   <div
     id="account"
     class="account-bar"
@@ -235,6 +235,63 @@
       <p class="muted">
         Clone over SSH with <code>{@ssh_clone_example}</code>.
       </p>
+    </section>
+
+    <section :if={@providers != []} id="providers" class="settings-pane">
+      <header class="pane-head">
+        <span>Linked accounts</span>
+        <span class="count">{Enum.count(@providers, & &1.account)}</span>
+      </header>
+
+      <p class="empty">
+        A linked account is what a mirror pushes under. Linking sends you to the provider and
+        back; nothing is stored but who the token belonged to.
+      </p>
+
+      <table class="table settings-table">
+        <thead>
+          <tr>
+            <th scope="col">Provider</th>
+            <th scope="col">Account</th>
+            <th scope="col">Linked</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={entry <- @providers} data-row>
+            <td class="wide" data-label="Provider">{entry.provider.label()}</td>
+            <td data-label="Account">
+              {if entry.account, do: entry.account.login, else: "not linked"}
+            </td>
+            <td data-label="Linked">
+              {if entry.account, do: format_date(to_string(entry.account.inserted_at)), else: "—"}
+            </td>
+            <td class="right" data-label="Action">
+              <form
+                id={"link-provider-#{entry.provider.name()}"}
+                method="post"
+                action={"/settings/providers/#{entry.provider.name()}"}
+              >
+                <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+                <button type="submit">
+                  {if entry.account, do: "Relink", else: "Connect"}
+                </button>
+              </form>
+              <form
+                :if={entry.account}
+                id={"unlink-provider-#{entry.provider.name()}"}
+                method="post"
+                action={"/settings/providers/#{entry.provider.name()}"}
+                onsubmit="return confirm('Unlink this account? Mirrors it connected are disabled.')"
+              >
+                <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+                <input type="hidden" name="_method" value="delete" />
+                <button type="submit" class="danger">Unlink</button>
+              </form>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <section :if={@current_user.admin} id="invites" class="settings-pane">

@@ -1,4 +1,4 @@
-<Layouts.app current_user={assigns[:current_user]} title={@repo.name} up="/">
+<Layouts.app flash={@flash} current_user={assigns[:current_user]} title={@repo.name} up="/">
   <:badge>
     <.repository_kind_badge kind={@repo_kind} model={@repo.kind} />
   </:badge>
@@ -214,6 +214,161 @@
         </p>
       </section>
     </div>
+
+    <section
+      :if={@mirror || @mirror_providers != []}
+      id="repository-mirror"
+      class="pane repo-mirror"
+    >
+      <header class="pane-head">
+        <span>Mirror</span>
+        <span :if={@mirror} class="count">{mirror_state_label(@mirror)}</span>
+      </header>
+
+      <%= if @mirror do %>
+        <dl class="kv">
+          <dt>target</dt>
+          <dd><a href={@mirror.target_url} rel="noopener">{@mirror.target_name}</a></dd>
+          <dt>state</dt>
+          <dd>{mirror_state_label(@mirror)}</dd>
+          <dt>last sync</dt>
+          <dd>
+            {if @mirror.last_synced_at,
+              do: format_date(to_string(@mirror.last_synced_at)),
+              else: "never"}
+            <span :if={Mirror.behind?(@mirror)} class="tag">behind</span>
+          </dd>
+          <dt :if={@mirror.last_failed_at}>last failure</dt>
+          <dd :if={@mirror.last_failed_at}>
+            {format_date(to_string(@mirror.last_failed_at))}
+          </dd>
+          <dt :if={@mirror.held_refs != []}>held</dt>
+          <dd :if={@mirror.held_refs != []}>{Enum.join(@mirror.held_refs, ", ")}</dd>
+        </dl>
+
+        <p :if={@may_write && @mirror.last_failure} class="notice notice-error">
+          {@mirror.last_failure}
+        </p>
+
+        <p :if={@mirror.state == "awaiting_access"} class="empty">
+          The provider cannot reach the target yet.
+          <a :if={@mirror_access_url} href={@mirror_access_url} rel="noopener">
+            Grant it access
+          </a>
+          and check again.
+        </p>
+
+        <div :if={@may_write} class="mirror-controls">
+          <form
+            :if={@mirror.state == "active"}
+            id="mirror-sync"
+            method="post"
+            action={repo_path(@repo.name) <> "/mirror/sync"}
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button type="submit">
+              {if Mirror.failing?(@mirror), do: "Retry", else: "Sync now"}
+            </button>
+          </form>
+
+          <form
+            :if={@mirror.state == "awaiting_access"}
+            id="mirror-check"
+            method="post"
+            action={repo_path(@repo.name) <> "/mirror/check"}
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button type="submit">Check again</button>
+          </form>
+
+          <form
+            :if={@mirror.state == "disabled"}
+            id="mirror-enable"
+            method="post"
+            action={repo_path(@repo.name) <> "/mirror/enable"}
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button type="submit">Enable</button>
+          </form>
+
+          <form
+            :if={@mirror.state != "disabled"}
+            id="mirror-disable"
+            method="post"
+            action={repo_path(@repo.name) <> "/mirror/disable"}
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <button type="submit">Disable</button>
+          </form>
+
+          <form
+            id="mirror-disconnect"
+            method="post"
+            action={repo_path(@repo.name) <> "/mirror"}
+            onsubmit="return confirm('Disconnect this mirror? The target is left as it is.')"
+          >
+            <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+            <input type="hidden" name="_method" value="delete" />
+            <button type="submit" class="danger">Disconnect</button>
+          </form>
+        </div>
+      <% else %>
+        <form
+          :for={entry <- @mirror_providers}
+          id={"mirror-connect-#{entry.provider.name()}"}
+          class="form"
+          method="post"
+          action={repo_path(@repo.name) <> "/mirror"}
+        >
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <input type="hidden" name="provider" value={entry.provider.name()} />
+
+          <p :if={is_nil(entry.account)} class="empty">
+            Link your {entry.provider.label()} account in <a href="/settings">settings</a>
+            to mirror this repository there.
+          </p>
+
+          <label :if={entry.account} for={"mirror-account-#{entry.provider.name()}"}>
+            {entry.provider.label()} account
+          </label>
+          <input
+            :if={entry.account}
+            type="text"
+            id={"mirror-account-#{entry.provider.name()}"}
+            name="account"
+            value={entry.account.login}
+            required
+          />
+
+          <label :if={entry.account} for={"mirror-name-#{entry.provider.name()}"}>
+            Repository name
+          </label>
+          <input
+            :if={entry.account}
+            type="text"
+            id={"mirror-name-#{entry.provider.name()}"}
+            name="name"
+            value={@repo.name}
+            required
+          />
+
+          <label :if={entry.account}>
+            <input type="radio" name="mode" value="new" checked /> Create a new private
+            repository
+          </label>
+          <label :if={entry.account}>
+            <input type="radio" name="mode" value="existing" /> Use an existing one
+          </label>
+          <label :if={entry.account}>
+            <input type="checkbox" name="confirm" value="true" /> I understand an existing
+            repository's branches and tags are replaced
+          </label>
+          <input type="hidden" name="private" value="true" />
+
+          <button :if={entry.account} type="submit">Connect mirror</button>
+        </form>
+      <% end %>
+    </section>
   </main>
 
   <:controls>

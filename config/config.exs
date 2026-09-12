@@ -24,7 +24,22 @@ config :pinha,
   # the repo root, which the repo listing skips for not ending in `.git`.
   ssh_enabled: true,
   ssh_port: 2222,
-  ssh_user: "git"
+  ssh_user: "git",
+  # The forges Pinha integrates with, and what listens to their events. A
+  # provider the operator has not configured offers no capabilities.
+  providers: [Pinha.Providers.GitHub],
+  provider_subscribers: [Pinha.Providers.Accounts, Pinha.Mirroring]
+
+# Background work: mirror syncs and provider events. Jobs run once, so a
+# failure waits for a person rather than retrying on its own.
+config :pinha, Oban,
+  repo: Pinha.Repo,
+  # Neon's pooled endpoint is PgBouncer in transaction mode, which cannot
+  # hold the session a `LISTEN` notifier needs.
+  notifier: Oban.Notifiers.PG,
+  queues: [mirrors: 4, providers: 4],
+  pruner: [max_age: {7, :days}],
+  cron: [crontab: [{"17 * * * *", Pinha.Providers.PruneWorker}]]
 
 # Configure the endpoint
 config :pinha, PinhaWeb.Endpoint,
