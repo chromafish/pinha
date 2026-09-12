@@ -71,7 +71,6 @@ body {
 
 .frame-head .who {
   margin-left: auto;
-  padding-left: var(--sp-6);
   font: var(--type-meta);
   color: var(--text-muted);
 }
@@ -90,6 +89,21 @@ body {
 .pane { min-width: 0; overflow: auto; padding-bottom: var(--sp-9); }
 .pane.bare { padding-top: var(--sp-5); }  /* no header line to hold the top edge */
 .pane + .pane { border-left: 1px solid var(--border-subtle); }
+
+/* Settings are records to manage, rather than parallel console panes. Keep
+   every record wide enough to read, and use a second column only when both
+   columns can comfortably hold their largest table. */
+.settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  min-height: 100%;
+}
+
+.settings-pane { min-width: 0; padding-bottom: var(--sp-9); }
+.settings-pane + .settings-pane { border-top: 1px solid var(--border-default); }
+
+.region .settings-pane > * + * { margin-top: var(--block-gap); }
 
 /* Stacked blocks inside a pane never touch. The extra `.region` outranks the
    `margin: 0` UA resets the blocks set for themselves. */
@@ -187,6 +201,13 @@ body {
 .table td.prose { font: var(--type-body); color: var(--text-body); }
 .table td.right { text-align: right; color: var(--text-muted); }
 .table td.wide { width: 100%; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+.settings-table td.ssh-key-name {
+  width: 24%;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.settings-table td.fingerprint { white-space: normal; overflow-wrap: anywhere; }
 
 /* ---- key/value rows ----------------------------------------------------- */
 
@@ -230,7 +251,22 @@ body {
   color: var(--text-muted);
 }
 
-.form input[type="text"], .form input[type="email"] { width: 100%; }
+.form input[type="text"], .form input[type="email"], .form textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.form textarea {
+  padding: var(--sp-4) var(--pad-inline);
+  resize: vertical;
+  font: var(--type-data);
+  color: var(--text-strong);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strongc);
+  border-radius: var(--radius-1);
+}
+
+.form textarea::placeholder { color: var(--text-faint); }
 .form button { margin-top: var(--sp-3); }
 
 .note { font: var(--type-meta); color: var(--text-muted); min-height: 1.2em; margin: 0; }
@@ -435,9 +471,79 @@ ul { list-style: none; margin: 0; padding: 0; }
 
 /* ---- narrow: one column, panes stack ------------------------------------ */
 
+@media (min-width: 1280px) {
+  .settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settings-pane:nth-child(even) { border-left: 1px solid var(--border-default); }
+  .settings-pane:nth-child(2) { border-top: 0; }
+}
+
 @media (max-width: 900px) {
   .panes.split,
   .panes.triple,
   .panes.quad { grid-template-columns: minmax(0, 1fr); }
   .pane + .pane { border-left: 0; border-top: 1px solid var(--border-default); }
+}
+
+/* Tables become labelled records before their columns can crowd the name or
+   action off-screen. The table structure remains in the document for assistive
+   technology, while every value gains a visible label in the compact layout. */
+@media (max-width: 640px) {
+  .settings-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .settings-table,
+  .settings-table tbody,
+  .settings-table tr {
+    display: block;
+    width: 100%;
+  }
+
+  .settings-table tr {
+    padding: var(--sp-4) var(--edge);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .settings-table td,
+  .settings-table td.wide,
+  .settings-table td.right,
+  .settings-table td.fingerprint {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--sp-5);
+    width: auto;
+    max-width: none;
+    min-height: var(--row-h);
+    height: auto;
+    padding: var(--sp-3) 0;
+    border: 0;
+    overflow: visible;
+    text-align: left;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-table td::before {
+    content: attr(data-label);
+    font: var(--type-label);
+    letter-spacing: var(--ls-caps);
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .settings-table td:first-child,
+  .settings-table td:last-child { padding-right: 0; padding-left: 0; }
+
+  .settings .form { max-width: none; }
 }

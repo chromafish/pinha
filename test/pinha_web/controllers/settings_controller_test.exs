@@ -10,6 +10,10 @@ defmodule PinhaWeb.SettingsControllerTest do
       assert html =~ "test key"
       assert html =~ user.email
       assert html =~ "No tokens."
+      assert html =~ ~s(id="settings" class="settings")
+      assert html =~ ~s(class="table settings-table")
+      assert html =~ ~s(data-label="Action")
+      assert html =~ ~s(id="mint-token")
     end
 
     test "is refused to a signed-out browser" do

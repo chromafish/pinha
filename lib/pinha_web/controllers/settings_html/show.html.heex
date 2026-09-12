@@ -1,31 +1,32 @@
 <Layouts.app current_user={assigns[:current_user]} title="settings" up="/">
-  <div class={["panes", if(@current_user.admin, do: "quad", else: "triple")]}>
-    <section class="pane">
+  <div id="settings" class="settings">
+    <section id="passkeys" class="settings-pane">
       <header class="pane-head">
         <span>Passkeys</span>
         <span class="count">{length(@credentials)}</span>
       </header>
 
-      <table class="table">
+      <table class="table settings-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Added</th>
-            <th>Last used</th>
-            <th></th>
+            <th scope="col">Name</th>
+            <th scope="col">Added</th>
+            <th scope="col">Last used</th>
+            <th scope="col">Action</th>
           </tr>
         </thead>
         <tbody>
           <tr :for={credential <- @credentials} data-row>
-            <td class="wide">{credential.label}</td>
-            <td>{format_date(to_string(credential.inserted_at))}</td>
-            <td>
+            <td class="wide" data-label="Name">{credential.label}</td>
+            <td data-label="Added">{format_date(to_string(credential.inserted_at))}</td>
+            <td data-label="Last used">
               {if credential.last_used_at,
                 do: format_date(to_string(credential.last_used_at)),
                 else: "never"}
             </td>
-            <td class="right">
+            <td class="right" data-label="Action">
               <form
+                id={"remove-passkey-#{credential.id}"}
                 method="post"
                 action={"/settings/passkeys/#{credential.id}"}
                 onsubmit="return confirm('Remove this passkey?')"
@@ -47,7 +48,7 @@
       </form>
     </section>
 
-    <section class="pane">
+    <section id="api-tokens" class="settings-pane">
       <header class="pane-head">
         <span>API tokens</span>
         <span class="count">{length(@tokens)}</span>
@@ -66,30 +67,31 @@
         Basic challenge.
       </p>
 
-      <table :if={@tokens != []} class="table">
+      <table :if={@tokens != []} class="table settings-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Created</th>
-            <th>Expires</th>
-            <th>Last used</th>
-            <th></th>
+            <th scope="col">Name</th>
+            <th scope="col">Created</th>
+            <th scope="col">Expires</th>
+            <th scope="col">Last used</th>
+            <th scope="col">Action</th>
           </tr>
         </thead>
         <tbody>
           <tr :for={token <- @tokens} data-row>
-            <td class="wide">{token.label}</td>
-            <td>{format_date(to_string(token.inserted_at))}</td>
-            <td>
+            <td class="wide" data-label="Name">{token.label}</td>
+            <td data-label="Created">{format_date(to_string(token.inserted_at))}</td>
+            <td data-label="Expires">
               {if token.expires_at, do: format_date(to_string(token.expires_at)), else: "never"}
             </td>
-            <td>
+            <td data-label="Last used">
               {if token.last_used_at,
                 do: format_date(to_string(token.last_used_at)),
                 else: "never"}
             </td>
-            <td class="right">
+            <td class="right" data-label="Action">
               <form
+                id={"revoke-token-#{token.id}"}
                 method="post"
                 action={"/settings/tokens/#{token.id}"}
                 onsubmit="return confirm('Revoke this token? Anything using it stops working.')"
@@ -102,9 +104,25 @@
           </tr>
         </tbody>
       </table>
+
+      <form id="mint-token" class="form" method="post" action="/settings/tokens">
+        <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+        <label for="token-label">Mint a token</label>
+        <input
+          type="text"
+          id="token-label"
+          name="label"
+          placeholder="laptop"
+          data-focus
+          required
+        />
+        <label for="token-expiry">Expiry in days</label>
+        <input type="text" id="token-expiry" name="expires_in" placeholder="optional" />
+        <button type="submit" class="primary">Mint token</button>
+      </form>
     </section>
 
-    <section class="pane">
+    <section id="ssh-keys" class="settings-pane">
       <header class="pane-head">
         <span>SSH keys</span>
         <span class="count">{length(@ssh_keys)}</span>
@@ -114,26 +132,29 @@
         No keys. A key pushes without a prompt, since the agent already holds it.
       </p>
 
-      <table :if={@ssh_keys != []} class="table">
+      <table :if={@ssh_keys != []} class="table settings-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Fingerprint</th>
-            <th>Last used</th>
-            <th></th>
+            <th scope="col">Name</th>
+            <th scope="col">Type</th>
+            <th scope="col">Fingerprint</th>
+            <th scope="col">Last used</th>
+            <th scope="col">Action</th>
           </tr>
         </thead>
         <tbody>
           <tr :for={key <- @ssh_keys} data-row>
-            <td class="wide">{key.label}</td>
-            <td>{key.algorithm}</td>
-            <td><code>{format_fingerprint(key.fingerprint)}</code></td>
-            <td>
+            <td class="ssh-key-name" data-label="Name">{key.label}</td>
+            <td data-label="Type">{key.algorithm}</td>
+            <td class="fingerprint" data-label="Fingerprint">
+              <code>{format_fingerprint(key.fingerprint)}</code>
+            </td>
+            <td data-label="Last used">
               {if key.last_used_at, do: format_date(to_string(key.last_used_at)), else: "never"}
             </td>
-            <td class="right">
+            <td class="right" data-label="Action">
               <form
+                id={"remove-ssh-key-#{key.id}"}
                 method="post"
                 action={"/settings/ssh-keys/#{key.id}"}
                 onsubmit="return confirm('Remove this key? Anything pushing with it stops working.')"
@@ -147,7 +168,7 @@
         </tbody>
       </table>
 
-      <form class="form" method="post" action="/settings/ssh-keys">
+      <form id="add-ssh-key" class="form" method="post" action="/settings/ssh-keys">
         <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
         <label for="ssh-key">Add a key</label>
         <textarea
@@ -157,7 +178,8 @@
           placeholder="ssh-ed25519 AAAA... you@laptop"
           required
         ></textarea>
-        <input type="text" name="label" placeholder="name (optional)" />
+        <label for="ssh-key-label">Name</label>
+        <input type="text" id="ssh-key-label" name="label" placeholder="optional" />
         <button type="submit">Add key</button>
       </form>
 
@@ -166,7 +188,7 @@
       </p>
     </section>
 
-    <section :if={@current_user.admin} class="pane">
+    <section :if={@current_user.admin} id="invites" class="settings-pane">
       <header class="pane-head">
         <span>Invites</span>
         <span class="count">{length(@invites)}</span>
@@ -184,25 +206,28 @@
         No invites. Every account here but the first one arrives on one.
       </p>
 
-      <table :if={@invites != []} class="table">
+      <table :if={@invites != []} class="table settings-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Minted</th>
-            <th>Expires</th>
-            <th>Used by</th>
-            <th></th>
+            <th scope="col">Name</th>
+            <th scope="col">Minted</th>
+            <th scope="col">Expires</th>
+            <th scope="col">Used by</th>
+            <th scope="col">Action</th>
           </tr>
         </thead>
         <tbody>
           <tr :for={invite <- @invites} data-row>
-            <td class="wide">{invite.label}</td>
-            <td>{format_date(to_string(invite.inserted_at))}</td>
-            <td>{format_date(to_string(invite.expires_at))}</td>
-            <td>{if invite.consumed_by, do: invite.consumed_by.email, else: "unused"}</td>
-            <td class="right">
+            <td class="wide" data-label="Name">{invite.label}</td>
+            <td data-label="Minted">{format_date(to_string(invite.inserted_at))}</td>
+            <td data-label="Expires">{format_date(to_string(invite.expires_at))}</td>
+            <td data-label="Used by">
+              {if invite.consumed_by, do: invite.consumed_by.email, else: "unused"}
+            </td>
+            <td class="right" data-label="Action">
               <form
                 :if={is_nil(invite.consumed_at)}
+                id={"revoke-invite-#{invite.id}"}
                 method="post"
                 action={"/settings/invites/#{invite.id}"}
                 onsubmit="return confirm('Revoke this invite?')"
@@ -216,7 +241,7 @@
         </tbody>
       </table>
 
-      <form class="form" method="post" action="/settings/invites">
+      <form id="mint-invite" class="form" method="post" action="/settings/invites">
         <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
         <label for="invite-label">Mint an invite</label>
         <input type="text" id="invite-label" name="label" placeholder="who it is for" />
@@ -226,14 +251,7 @@
   </div>
 
   <:controls>
-    <form method="post" action="/settings/tokens">
-      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
-      <input type="text" name="label" placeholder="laptop" data-focus required />
-      <input type="text" name="expires_in" placeholder="days (optional)" class="narrow" />
-      <button type="submit" class="primary">Mint token</button>
-    </form>
-
-    <form class="spacer" method="post" action="/signout">
+    <form id="signout" class="spacer" method="post" action="/signout">
       <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
       <input type="hidden" name="_method" value="delete" />
       <button type="submit">Sign out</button>
