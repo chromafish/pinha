@@ -54,6 +54,7 @@ defmodule PinhaWeb.Observability do
   def line(conn, route, duration_ms) do
     %{
       ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+      event: "request",
       transport: "http",
       method: conn.method,
       path: "/" <> Enum.join(conn.path_info, "/"),
@@ -69,6 +70,19 @@ defmodule PinhaWeb.Observability do
       user_agent: header(conn, "user-agent")
     }
     |> put_refs(conn)
+    |> put_git_failure(conn)
+  end
+
+  # A git process that exited non-zero says why on its stderr; that belongs on
+  # the line for the request that started it.
+  defp put_git_failure(line, conn) do
+    case conn.private[:pinha_git_stderr] do
+      nil ->
+        line
+
+      stderr ->
+        Map.merge(line, %{git_status: conn.private[:pinha_git_status], git_stderr: stderr})
+    end
   end
 
   defp put_refs(line, conn), do: Widelog.put_refs(line, conn.private[:pinha_refs])

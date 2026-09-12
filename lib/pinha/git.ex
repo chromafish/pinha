@@ -10,8 +10,7 @@ defmodule Pinha.Git do
 
   alias Pinha.Config
   alias Pinha.Repos.Repo
-
-  require Logger
+  alias Pinha.Widelog
 
   @us <<0x1F>>
   @rs <<0x1E>>
@@ -21,6 +20,9 @@ defmodule Pinha.Git do
                    "%(trailers:key=change-id,valueonly,separator=%x1d)%x1f%s%x1f%b%x1e"
 
   @max_render_bytes 5_000_000
+
+  @stderr_var "PINHA_STDERR"
+  @stderr_limit 4_000
 
   @type commit :: %{
           id: String.t(),
@@ -39,16 +41,87 @@ defmodule Pinha.Git do
   @doc """
   Runs git in `dir` and returns stdout.
 
-  Git's stderr goes to the server's stderr for the operator to read.
+  git's stderr is captured rather than inherited: a failure becomes one
+  widelog line carrying the repository, the arguments, the exit status, and
+  what git said, instead of unstructured text next to the request lines.
   """
   @spec run(String.t(), [String.t()], keyword()) :: {:ok, binary()} | {:error, {:exit, integer()}}
   def run(dir, args, opts \\ []) do
     args = ["-c", "core.quotePath=false" | args]
+    stderr = stderr_path()
 
-    case System.cmd(Config.git_bin(), args, cd: dir, env: env(opts), stderr_to_stdout: false) do
-      {out, 0} -> {:ok, out}
-      {_out, code} -> {:error, {:exit, code}}
+    try do
+      case System.cmd("/bin/sh", shell_args(Config.git_bin(), args),
+             cd: dir,
+             env: [{@stderr_var, stderr} | env(opts)],
+             stderr_to_stdout: false
+           ) do
+        {out, 0} ->
+          {:ok, out}
+
+        {_out, code} ->
+          log_failure(dir, args, code, read_stderr(stderr))
+          {:error, {:exit, code}}
+      end
+    after
+      File.rm(stderr)
     end
+  end
+
+  @doc """
+  Arguments that run `bin` under `/bin/sh` with its stderr redirected.
+
+  The command is a fixed string and every argument arrives as a positional
+  parameter, so nothing a client sends is ever parsed by the shell. The
+  redirect target comes from the environment for the same reason.
+  """
+  @spec shell_args(String.t(), [String.t()]) :: [String.t()]
+  def shell_args(bin, args), do: ["-c", ~s(exec "$@" 2>"$#{@stderr_var}"), "sh", bin | args]
+
+  @doc "A path for one invocation's stderr, removed by whoever created it."
+  @spec stderr_path() :: String.t()
+  def stderr_path do
+    Path.join(
+      System.tmp_dir!(),
+      "pinha-stderr-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+    )
+  end
+
+  @doc "The name of the environment variable naming that path."
+  @spec stderr_var() :: String.t()
+  def stderr_var, do: @stderr_var
+
+  @doc "Reads captured stderr, trimmed and truncated to something a log line can hold."
+  @spec read_stderr(String.t()) :: String.t() | nil
+  def read_stderr(path) do
+    case File.read(path) do
+      {:ok, ""} ->
+        nil
+
+      {:ok, text} ->
+        text = text |> scrub() |> String.trim()
+
+        cond do
+          text == "" -> nil
+          byte_size(text) > @stderr_limit -> binary_part(text, 0, @stderr_limit) <> "…"
+          true -> text
+        end
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  @doc "One widelog line for a git invocation that failed on its own."
+  @spec log_failure(String.t(), [String.t()], integer(), String.t() | nil) :: :ok
+  def log_failure(dir, args, status, stderr) do
+    Widelog.write(%{
+      event: "git",
+      repo: Path.basename(dir, ".git"),
+      argv: args,
+      status: status,
+      stderr: stderr
+    })
   end
 
   @doc "Environment every git invocation runs under: no system or user config."

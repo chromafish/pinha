@@ -137,12 +137,19 @@ _build/prod/rel/pinha/bin/pinha rpc 'Pinha.Accounts.Registration.authorize("you@
 
 ## Operating
 
-Logs go to stdout as JSON, one canonical widelog line per request:
+Logs go to stdout as JSON, one canonical widelog line per request, `event`
+naming which kind it is:
 timestamp, transport (`http` or `ssh`), method, route, repo, rev, git protocol
 (`upload-pack`, `receive-pack`, or `none`), status, duration, request and
 response bytes, and user agent. An SSH session writes one line of the same
 shape per exec, carrying the peer address and git's exit status. Push lines
 also carry per-ref old and new tips, truncated after `:log_max_refs` refs.
+
+A git process that exits non-zero has its stderr captured rather than
+inherited, so what it said lands on that request's own line as `git_stderr`
+instead of as loose text between the JSON. A git command with no request
+behind it, from browsing or background maintenance, writes its own
+`event: "git"` line with the repository, the arguments, and the status.
 
 Metrics available:
 

@@ -20,12 +20,23 @@ defmodule Pinha.Git.Transport do
   def advertise(dir, service, opts \\ []) do
     args = [subcommand(service), "--stateless-rpc", "--http-backend-info-refs", "."]
 
-    case System.cmd(Config.git_bin(), args, cd: dir, env: Git.env(opts), stderr_to_stdout: false) do
-      {out, 0} ->
-        {:ok, PktLine.encode("# service=#{service}\n") <> PktLine.flush() <> out}
+    stderr = Git.stderr_path()
 
-      {_out, code} ->
-        {:error, {:exit, code}}
+    try do
+      case System.cmd("/bin/sh", Git.shell_args(Config.git_bin(), args),
+             cd: dir,
+             env: [{Git.stderr_var(), stderr} | Git.env(opts)],
+             stderr_to_stdout: false
+           ) do
+        {out, 0} ->
+          {:ok, PktLine.encode("# service=#{service}\n") <> PktLine.flush() <> out}
+
+        {_out, code} ->
+          Git.log_failure(dir, args, code, Git.read_stderr(stderr))
+          {:error, {:exit, code}}
+      end
+    after
+      File.rm(stderr)
     end
   end
 
@@ -33,15 +44,20 @@ defmodule Pinha.Git.Transport do
   Runs an RPC with stdin read from `input_path`, invoking `on_chunk` for each
   block of output.
 
-  `on_chunk` receives `(acc, data)` and returns the next accumulator.
+  `on_chunk` receives `(acc, data)` and returns the next accumulator. The
+  child's stderr is captured and returned with the exit status, so the caller
+  can put it on the request's own log line rather than leaking it to the
+  server's stderr.
   """
   @spec rpc(String.t(), String.t(), String.t(), keyword(), acc, (acc, binary() -> acc)) ::
-          {:ok, acc, integer()} | {:error, term(), acc}
+          {:ok, acc, integer(), String.t() | nil} | {:error, term(), acc}
         when acc: term()
   def rpc(dir, service, input_path, opts, acc, on_chunk) do
+    stderr = Git.stderr_path()
+
     command =
       "exec #{shell_quote(Config.git_bin())} #{subcommand(service)} --stateless-rpc #{shell_quote(dir)} " <>
-        "< #{shell_quote(input_path)}"
+        "< #{shell_quote(input_path)} 2>\"$#{Git.stderr_var()}\""
 
     port =
       Port.open({:spawn_executable, "/bin/sh"}, [
@@ -50,10 +66,21 @@ defmodule Pinha.Git.Transport do
         :hide,
         args: ["-c", command],
         cd: dir,
-        env: port_env(opts)
+        env:
+          port_env(
+            [{Git.stderr_var(), stderr} | Keyword.get(opts, :env, [])]
+            |> then(&Keyword.put(opts, :env, &1))
+          )
       ])
 
-    stream(port, acc, on_chunk)
+    try do
+      case stream(port, acc, on_chunk) do
+        {:ok, acc, status} -> {:ok, acc, status, Git.read_stderr(stderr)}
+        {:error, reason, acc} -> {:error, reason, acc}
+      end
+    after
+      File.rm(stderr)
+    end
   end
 
   defp stream(port, acc, on_chunk) do

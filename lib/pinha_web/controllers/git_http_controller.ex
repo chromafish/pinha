@@ -119,16 +119,18 @@ defmodule PinhaWeb.GitHttpController do
       |> send_chunked(200)
 
     case Transport.rpc(repo.dir, service, input, [env: protocol_env(conn)], conn, &send_data/2) do
-      {:ok, conn, 0} ->
+      {:ok, conn, 0, _stderr} ->
         conn
 
-      {:ok, conn, status} ->
-        Logger.error("#{service} exited with #{status} for #{repo.name}")
+      {:ok, conn, status, stderr} ->
+        # git's own account of the failure rides on this request's widelog
+        # line, next to the repo and the refs it was asked for.
         conn
+        |> put_private(:pinha_git_status, status)
+        |> put_private(:pinha_git_stderr, stderr)
 
       {:error, reason, conn} ->
-        Logger.error("#{service} failed for #{repo.name}: #{inspect(reason)}")
-        conn
+        put_private(conn, :pinha_git_stderr, "transport failed: #{inspect(reason)}")
     end
   end
 

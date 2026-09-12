@@ -194,4 +194,37 @@ defmodule Pinha.GitTest do
     assert Git.scrub("ok") == "ok"
     assert String.valid?(Git.scrub(<<0xFF, "text">>))
   end
+
+  describe "a git invocation that fails" do
+    setup do
+      previous = Application.get_env(:pinha, :widelog)
+      Application.put_env(:pinha, :widelog, true)
+      on_exit(fn -> Application.put_env(:pinha, :widelog, previous) end)
+      :ok
+    end
+
+    test "says so on one log line, carrying what git wrote to stderr", %{repo: repo} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:error, {:exit, code}} = Git.run(repo.dir, ["rev-parse", "--verify", "nope"])
+          assert code != 0
+        end)
+
+      assert {:ok, line} = Jason.decode(output)
+      assert line["event"] == "git"
+      assert line["repo"] == "demo"
+      assert line["status"] != 0
+      assert line["stderr"] =~ "fatal:"
+      assert "rev-parse" in line["argv"]
+    end
+
+    test "a command that works logs nothing", %{repo: repo} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:ok, _} = Git.run(repo.dir, ["rev-parse", "HEAD"])
+        end)
+
+      assert output == ""
+    end
+  end
 end

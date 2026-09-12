@@ -49,6 +49,7 @@ defmodule Pinha.Ssh.Channel do
       :started_at,
       :timer,
       :peer,
+      :stderr_path,
       scan: <<>>,
       refs: nil,
       req_bytes: 0,
@@ -138,6 +139,7 @@ defmodule Pinha.Ssh.Channel do
   @impl true
   def terminate(_reason, state) do
     close_port(state)
+    if state.stderr_path, do: File.rm(state.stderr_path)
     :ok
   end
 
@@ -208,23 +210,29 @@ defmodule Pinha.Ssh.Channel do
         deny(state, "git is not available on this server")
 
       git ->
+        # Run under /bin/sh only to redirect stderr to a file. The command is
+        # fixed and the arguments arrive as positional parameters, so nothing
+        # the client sent is parsed by the shell.
+        stderr = Git.stderr_path()
+
         port =
-          Port.open({:spawn_executable, git}, [
+          Port.open({:spawn_executable, "/bin/sh"}, [
             :binary,
             :exit_status,
             :hide,
-            args: [state.subcommand, state.repo.dir],
+            args: Git.shell_args(git, [state.subcommand, state.repo.dir]),
             cd: state.repo.dir,
-            env: env(state)
+            env: env(%{state | stderr_path: stderr})
           ])
 
         count(state)
-        {:ok, arm(%{state | port: port})}
+        {:ok, arm(%{state | port: port, stderr_path: stderr})}
     end
   end
 
   defp env(state) do
     extra = if state.protocol, do: [{@protocol_env, state.protocol}], else: []
+    extra = if state.stderr_path, do: [{Git.stderr_var(), state.stderr_path} | extra], else: extra
 
     Git.env(env: extra)
     |> Enum.map(fn {key, value} -> {String.to_charlist(key), String.to_charlist(value)} end)
@@ -318,6 +326,7 @@ defmodule Pinha.Ssh.Channel do
 
   defp log(state, status) do
     %{
+      event: "request",
       transport: "ssh",
       method: "exec",
       path: nil,
@@ -334,7 +343,20 @@ defmodule Pinha.Ssh.Channel do
       user_agent: nil
     }
     |> Widelog.put_refs(state.refs)
+    |> put_git_stderr(state, status)
     |> Widelog.write()
+  end
+
+  # What git said before it failed goes on this session's line, not on the
+  # server's stderr.
+  defp put_git_stderr(line, %State{stderr_path: nil}, _status), do: line
+  defp put_git_stderr(line, _state, 0), do: line
+
+  defp put_git_stderr(line, state, _status) do
+    case Git.read_stderr(state.stderr_path) do
+      nil -> line
+      stderr -> Map.put(line, :git_stderr, stderr)
+    end
   end
 
   defp duration(%State{started_at: nil}), do: 0.0
