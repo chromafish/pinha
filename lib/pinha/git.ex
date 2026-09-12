@@ -192,14 +192,10 @@ defmodule Pinha.Git do
 
   @doc "Short name of the existing bookmark `HEAD` points at, or nil without one."
   @spec default_bookmark(Repo.t()) :: String.t() | nil
-  def default_bookmark(%Repo{dir: dir} = repo) do
-    case run(dir, ["symbolic-ref", "--short", "HEAD"]) do
-      {:ok, out} ->
-        name = String.trim(out)
-        if Enum.any?(bookmarks(repo), &(&1.name == name)), do: name
-
-      {:error, _} ->
-        nil
+  def default_bookmark(repo) do
+    case refs(repo, tags: false) do
+      %{default_bookmark: %{name: name}} -> name
+      _ -> nil
     end
   end
 
@@ -209,7 +205,7 @@ defmodule Pinha.Git do
 
   @doc "Jujutsu bookmarks (Git branches) with their tip commit id, date, and subject."
   @spec bookmarks(Repo.t()) :: [map()]
-  def bookmarks(repo), do: refs(repo, "refs/heads")
+  def bookmarks(repo), do: refs(repo, tags: false).bookmarks
 
   @doc "Compatibility name for `bookmarks/1`."
   @spec branches(Repo.t()) :: [map()]
@@ -218,10 +214,10 @@ defmodule Pinha.Git do
   @doc "The revision used when a browse URL does not name one."
   @spec default_revision(Repo.t()) :: map() | nil
   def default_revision(repo) do
-    with name when is_binary(name) <- default_bookmark(repo),
-         bookmark when not is_nil(bookmark) <- Enum.find(bookmarks(repo), &(&1.name == name)) do
-      target(bookmark.id, :bookmark, bookmark.name, repo)
-    else
+    case refs(repo, tags: false) do
+      %{default_bookmark: %{} = bookmark} ->
+        target(bookmark.id, :bookmark, bookmark.name, repo)
+
       _ ->
         case log_all(repo, limit: 1) do
           [commit] ->
@@ -235,31 +231,67 @@ defmodule Pinha.Git do
 
   @doc "Tags with the tag object and, for annotated tags, the commit it peels to."
   @spec tags(Repo.t()) :: [map()]
-  def tags(repo), do: refs(repo, "refs/tags")
+  def tags(repo), do: refs(repo).tags
 
-  defp refs(%Repo{dir: dir}, namespace) do
+  @doc """
+  Bookmarks, tags, and the bookmark `HEAD` points at, read with one `git`.
+
+  `default_bookmark` is nil when `HEAD` is detached or names a bookmark that
+  does not exist. With `tags: false` only bookmarks are read and `tags` is
+  empty.
+  """
+  @spec refs(Repo.t(), keyword()) :: %{
+          default_bookmark: map() | nil,
+          bookmarks: [map()],
+          tags: [map()]
+        }
+  def refs(%Repo{dir: dir}, opts \\ []) do
+    namespaces =
+      if Keyword.get(opts, :tags, true), do: ["refs/heads", "refs/tags"], else: ["refs/heads"]
+
     format =
-      "%(refname:short)#{@us}%(objectname)#{@us}%(*objectname)#{@us}" <>
+      "%(HEAD)#{@us}%(refname)#{@us}%(objectname)#{@us}%(*objectname)#{@us}" <>
         "%(committerdate:iso-strict)#{@us}%(contents:subject)"
 
-    case run(dir, ["for-each-ref", "--format=" <> format, namespace]) do
-      {:ok, out} ->
-        out
-        |> String.split("\n", trim: true)
-        |> Enum.map(fn line ->
-          [name, oid, peeled, date, subject] =
-            (String.split(line, @us) ++ ["", "", "", "", ""]) |> Enum.take(5)
+    entries =
+      case run(dir, ["for-each-ref", "--format=" <> format | namespaces]) do
+        {:ok, out} -> out |> String.split("\n", trim: true) |> Enum.flat_map(&parse_ref/1)
+        {:error, _} -> []
+      end
 
-          %{
-            name: scrub(name),
-            id: if(peeled != "", do: peeled, else: oid),
-            ref_id: oid,
-            date: date,
-            subject: scrub(subject)
-          }
-        end)
+    %{
+      default_bookmark:
+        Enum.find_value(entries, fn {kind, head?, ref} -> kind == :bookmark and head? and ref end),
+      bookmarks: for({:bookmark, _, ref} <- entries, do: ref),
+      tags: for({:tag, _, ref} <- entries, do: ref)
+    }
+  end
 
-      {:error, _} ->
+  defp parse_ref(line) do
+    [head, refname, oid, peeled, date, subject] =
+      (String.split(line, @us, parts: 6) ++ List.duplicate("", 6)) |> Enum.take(6)
+
+    kind_and_name =
+      case refname do
+        "refs/heads/" <> name -> {:bookmark, name}
+        "refs/tags/" <> name -> {:tag, name}
+        _ -> nil
+      end
+
+    case kind_and_name do
+      {kind, name} ->
+        [
+          {kind, head == "*",
+           %{
+             name: scrub(name),
+             id: if(peeled != "", do: peeled, else: oid),
+             ref_id: oid,
+             date: date,
+             subject: scrub(subject)
+           }}
+        ]
+
+      nil ->
         []
     end
   end
@@ -275,8 +307,7 @@ defmodule Pinha.Git do
           {:ok, map()} | {:ambiguous, [map()]} | {:error, :not_found}
   def resolve(repo, rev) when is_binary(rev) do
     with :error <- resolve_commit_id(repo, rev),
-         :error <- resolve_bookmark(repo, rev),
-         :error <- resolve_tag(repo, rev) do
+         :error <- resolve_ref(repo, rev) do
       resolve_change_id(repo, rev)
     end
   end
@@ -296,20 +327,19 @@ defmodule Pinha.Git do
     end
   end
 
-  defp resolve_bookmark(repo, rev) do
-    case Enum.find(bookmarks(repo), &(&1.name == rev)) do
-      nil ->
-        :error
+  # A bookmark wins over a tag of the same name.
+  defp resolve_ref(repo, rev) do
+    %{bookmarks: bookmarks, tags: tags} = refs(repo)
 
-      bookmark ->
+    cond do
+      bookmark = Enum.find(bookmarks, &(&1.name == rev)) ->
         {:ok, target(bookmark.id, :bookmark, rev, repo)}
-    end
-  end
 
-  defp resolve_tag(repo, rev) do
-    case Enum.find(tags(repo), &(&1.name == rev)) do
-      nil -> :error
-      tag -> {:ok, target(tag.id, :tag, rev, repo)}
+      tag = Enum.find(tags, &(&1.name == rev)) ->
+        {:ok, target(tag.id, :tag, rev, repo)}
+
+      true ->
+        :error
     end
   end
 
@@ -521,24 +551,20 @@ defmodule Pinha.Git do
   """
   @spec blob(Repo.t(), String.t(), String.t()) :: {:ok, map()} | {:error, :not_found}
   def blob(%Repo{dir: dir}, id, path) do
-    with {:ok, size} <- object_size(dir, spec(id, path)),
-         {:ok, content} <- run(dir, ["cat-file", "blob", spec(id, path)]) do
-      {:ok,
-       %{
-         content: content,
-         size: size,
-         binary?: binary?(content),
-         too_large?: size > @max_render_bytes
-       }}
-    else
-      _ -> {:error, :not_found}
-    end
-  end
+    case run(dir, ["cat-file", "blob", spec(id, path)]) do
+      {:ok, content} ->
+        size = byte_size(content)
 
-  defp object_size(dir, spec) do
-    case run(dir, ["cat-file", "-s", spec]) do
-      {:ok, out} -> {:ok, out |> String.trim() |> String.to_integer()}
-      {:error, _} -> {:error, :not_found}
+        {:ok,
+         %{
+           content: content,
+           size: size,
+           binary?: binary?(content),
+           too_large?: size > @max_render_bytes
+         }}
+
+      {:error, _} ->
+        {:error, :not_found}
     end
   end
 

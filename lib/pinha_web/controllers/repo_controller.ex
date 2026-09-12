@@ -12,10 +12,11 @@ defmodule PinhaWeb.RepoController do
   alias Pinha.Accounts
   alias Pinha.Audit
   alias Pinha.Git
+  alias Pinha.Parallel
   alias Pinha.Repos
 
   def index(conn, _params) do
-    entries = Enum.map(Repos.list(), &entry/1)
+    entries = Parallel.map(Repos.list(), &entry/1)
 
     case get_format(conn) do
       "json" -> json(conn, %{repos: Enum.map(entries, &json_entry/1)})
@@ -57,23 +58,25 @@ defmodule PinhaWeb.RepoController do
   def show(conn, %{"repo" => name}) do
     case Repos.fetch(name) do
       {:ok, repo} ->
-        default_bookmark = Git.default_bookmark(repo)
-        bookmarks = Git.bookmarks(repo)
-        tags = Git.tags(repo)
-        commits = Git.log_all(repo, limit: 20)
-        repo_kind = presentation_kind(repo, Git.history_kind(commits))
-        user = conn.assigns.current_user
+        may_write = Repos.writable_by?(repo, conn.assigns.current_user)
+
+        [refs, commits, {owner, users}] =
+          Parallel.all([
+            fn -> Git.refs(repo) end,
+            fn -> Git.log_all(repo, limit: 20) end,
+            fn -> owner_and_users(repo, may_write) end
+          ])
 
         render(conn, :show,
           repo: repo,
-          owner: owner(repo),
-          may_write: Repos.writable_by?(repo, user),
-          users: if(Repos.writable_by?(repo, user), do: Accounts.list_users(), else: []),
-          default_bookmark: default_bookmark,
-          bookmarks: bookmarks,
-          tags: tags,
+          owner: owner,
+          may_write: may_write,
+          users: users,
+          default_bookmark: refs.default_bookmark && refs.default_bookmark.name,
+          bookmarks: refs.bookmarks,
+          tags: refs.tags,
           commits: commits,
-          repo_kind: repo_kind
+          repo_kind: presentation_kind(repo, Git.history_kind(commits))
         )
 
       {:error, :invalid_name} ->
@@ -154,28 +157,47 @@ defmodule PinhaWeb.RepoController do
     end
   end
 
-  defp owner(repo) do
+  # The owner picker lists every user, and the owner is one of them, so a
+  # writer's page reads users once.
+  defp owner_and_users(repo, true) do
+    users = Accounts.list_users()
+    {repo.owner_uid && Enum.find(users, &(&1.uid == repo.owner_uid)), users}
+  end
+
+  defp owner_and_users(repo, false) do
     case Repos.owner(repo) do
-      {:ok, user} -> user
-      :error -> nil
+      {:ok, user} -> {user, []}
+      :error -> {nil, []}
     end
   end
 
   defp entry(repo) do
-    default_bookmark = Git.default_bookmark(repo)
-    commits = Git.log_all(repo, limit: 20)
-    repo_kind = presentation_kind(repo, Git.history_kind(commits))
+    [refs, commits] =
+      Parallel.all([
+        fn -> Git.refs(repo, tags: false) end,
+        fn -> Git.log_all(repo, limit: 20) end
+      ])
 
+    repo_kind = presentation_kind(repo, Git.history_kind(commits))
+    default_bookmark = refs.default_bookmark
+
+    # The default bookmark's tip is usually among the newest commits already
+    # read, which saves a second log.
     head =
       case {repo_kind, default_bookmark} do
-        {:git, bookmark} when is_binary(bookmark) ->
-          repo |> Git.log(bookmark, limit: 1) |> List.first()
+        {:git, %{id: id}} ->
+          Enum.find(commits, &(&1.id == id)) || repo |> Git.log(id, limit: 1) |> List.first()
 
         _ ->
           List.first(commits)
       end
 
-    %{repo: repo, repo_kind: repo_kind, default_bookmark: default_bookmark, head: head}
+    %{
+      repo: repo,
+      repo_kind: repo_kind,
+      default_bookmark: default_bookmark && default_bookmark.name,
+      head: head
+    }
   end
 
   defp json_entry(%{

@@ -9,6 +9,7 @@ defmodule PinhaWeb.BrowseController do
   use PinhaWeb, :controller
 
   alias Pinha.Git
+  alias Pinha.Parallel
   alias Pinha.Repos
 
   def tree(conn, %{"repo" => name} = params) do
@@ -50,13 +51,20 @@ defmodule PinhaWeb.BrowseController do
 
   def commit(conn, %{"repo" => name, "id" => id}) do
     with_target(conn, name, id, fn conn, repo, target ->
-      case Git.commit(repo, target.id) do
+      [commit, stat, diff] =
+        Parallel.all([
+          fn -> Git.commit(repo, target.id) end,
+          fn -> Git.diff_stat(repo, target.id) end,
+          fn -> Git.diff(repo, target.id) end
+        ])
+
+      case commit do
         {:ok, commit} ->
           render(conn, :commit,
             repo: repo,
             commit: commit,
-            stat: Git.diff_stat(repo, commit.id),
-            diff: Git.diff(repo, commit.id),
+            stat: stat,
+            diff: diff,
             page_title: "#{repo.name}: #{Git.short(commit.id)}"
           )
 
@@ -67,14 +75,18 @@ defmodule PinhaWeb.BrowseController do
   end
 
   defp render_tree(conn, repo, target, path) do
-    {:ok, entries} = Git.list_tree(repo, target.id, path)
+    [{:ok, entries}, commits] =
+      Parallel.all([
+        fn -> Git.list_tree(repo, target.id, path) end,
+        fn -> Git.log(repo, target.id, limit: 10, path: path) end
+      ])
 
     render(conn, :tree,
       repo: repo,
       target: target,
       path: path,
       entries: entries,
-      commits: Git.log(repo, target.id, limit: 10, path: path),
+      commits: commits,
       page_title: "#{repo.name}: #{path}"
     )
   end

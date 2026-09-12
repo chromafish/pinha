@@ -54,6 +54,29 @@ defmodule Pinha.GitTest do
     assert [%{name: "v1", id: ^id}] = Git.tags(repo)
   end
 
+  test "refs/2 reads the default bookmark, bookmarks, and tags together", %{
+    repo: repo,
+    commits: [head | _]
+  } do
+    git!(repo.dir, ["tag", "v1", head.id])
+    git!(repo.dir, ["branch", "v1", head.id])
+
+    assert %{
+             default_bookmark: %{name: "main", id: id},
+             bookmarks: [%{name: "main"}, %{name: "v1"}],
+             tags: [%{name: "v1", id: id}]
+           } = Git.refs(repo)
+
+    assert id == head.id
+    assert %{bookmarks: [_, _], tags: []} = Git.refs(repo, tags: false)
+    assert {:ok, %{kind: :bookmark}} = Git.resolve(repo, "v1")
+  end
+
+  test "refs/2 has no default when HEAD names a missing bookmark", %{repo: repo} do
+    git!(repo.dir, ["symbolic-ref", "HEAD", "refs/heads/unborn"])
+    assert %{default_bookmark: nil, bookmarks: [%{name: "main"}]} = Git.refs(repo)
+  end
+
   test "log/3 reads change-id trailers", %{commits: [second, first]} do
     assert second.subject == "second commit"
     assert second.change_id == @second_change
