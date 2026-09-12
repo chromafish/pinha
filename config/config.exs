@@ -32,6 +32,11 @@ config :pinha, PinhaWeb.Endpoint,
   ],
   pubsub_server: Pinha.PubSub
 
+# pinha writes one canonical JSON line per request. Phoenix's own request
+# logger would print two more next to it, unstructured. The telemetry events
+# it listens to stay on: the traces are built from them.
+config :phoenix, :logger, false
+
 # Configure Elixir's Logger
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
