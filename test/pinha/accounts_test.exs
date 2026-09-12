@@ -2,6 +2,7 @@ defmodule Pinha.AccountsTest do
   use Pinha.DataCase, async: false
 
   alias Pinha.Accounts.Registration
+  alias Pinha.Accounts.User
 
   describe "invites" do
     test "one invite admits one registration and is spent by it" do
@@ -104,6 +105,41 @@ defmodule Pinha.AccountsTest do
                )
 
       assert "has already been taken" in errors_on(changeset).email
+    end
+
+    # The authenticator was handed this handle before the row existed and
+    # replays it on every assertion, so a registration that mints its own
+    # instead stores a user no passkey can name and sign-in 403s forever.
+    test "keeps the handle the registration challenge handed the authenticator" do
+      handle = User.generate_handle()
+
+      assert {:ok, %{user: user}} =
+               Accounts.register_user(
+                 %{email: "handled@example.com", handle: handle},
+                 credential_attrs("their key")
+               )
+
+      assert user.handle == handle
+      assert {:ok, found} = Accounts.fetch_user_by_handle(handle)
+      assert found.id == user.id
+    end
+
+    test "refuses a registration with no handle, or one of the wrong size" do
+      assert {:error, :user, changeset} =
+               Accounts.register_user(
+                 %{email: "nohandle@example.com"},
+                 credential_attrs("their key")
+               )
+
+      assert "can't be blank" in errors_on(changeset).handle
+
+      assert {:error, :user, short} =
+               Accounts.register_user(
+                 %{email: "short@example.com", handle: <<1, 2, 3>>},
+                 credential_attrs("their key")
+               )
+
+      assert "must be 32 bytes" in errors_on(short).handle
     end
   end
 

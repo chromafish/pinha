@@ -3,8 +3,13 @@ defmodule Pinha.Accounts.User do
   A person who may reach the server.
 
   `handle` is what authenticators store as the WebAuthn user handle: 32 opaque
-  bytes generated here, never the primary key, so that what a stolen
-  authenticator holds says nothing about how many users exist.
+  bytes, never the primary key, so that what a stolen authenticator holds says
+  nothing about how many users exist. It is minted with `generate_handle/0`
+  when the registration challenge is issued, because the browser is handed it
+  before this row exists, and the authenticator echoes it back on every
+  assertion afterwards. Whoever issued the challenge supplies it here, and it
+  is stored exactly as given: a handle regenerated at insert would name a user
+  no authenticator has ever heard of.
 
   `uid` is how everything outside this database names a user: a repository
   records its owner as `pinha.owner` in its own git config, and that is a
@@ -41,6 +46,10 @@ defmodule Pinha.Accounts.User do
     timestamps(type: :utc_datetime)
   end
 
+  @doc "A fresh WebAuthn user handle. Minted before the user row it will name."
+  @spec generate_handle() :: binary()
+  def generate_handle, do: :crypto.strong_rand_bytes(@handle_bytes)
+
   @doc "A fresh `uid`: an opaque name for one user, safe to write to disk."
   @spec generate_uid() :: String.t()
   def generate_uid do
@@ -50,19 +59,28 @@ defmodule Pinha.Accounts.User do
        |> Base.encode32(padding: false, case: :lower))
   end
 
-  @doc "Changeset for a new user. The handle and uid are generated, never supplied."
+  @doc "Changeset for a new user. The handle is supplied; the uid is generated."
   def changeset(user, attrs) do
     user
-    |> cast(attrs, [:email, :admin])
-    |> validate_required([:email])
+    |> cast(attrs, [:email, :admin, :handle])
+    |> validate_required([:email, :handle])
+    |> validate_handle()
     |> update_change(:email, &(&1 |> String.trim() |> String.downcase()))
     |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+\.[^@,;\s]+$/,
       message: "must be an email address"
     )
     |> validate_length(:email, max: 160)
-    |> put_change(:handle, :crypto.strong_rand_bytes(@handle_bytes))
     |> put_change(:uid, generate_uid())
     |> unique_constraint(:email)
     |> unique_constraint(:uid)
+    |> unique_constraint(:handle)
+  end
+
+  defp validate_handle(changeset) do
+    validate_change(changeset, :handle, fn :handle, handle ->
+      if byte_size(handle) == @handle_bytes,
+        do: [],
+        else: [handle: "must be #{@handle_bytes} bytes"]
+    end)
   end
 end

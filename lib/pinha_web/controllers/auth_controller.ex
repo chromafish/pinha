@@ -16,6 +16,7 @@ defmodule PinhaWeb.AuthController do
 
   alias Pinha.Accounts
   alias Pinha.Accounts.Registration
+  alias Pinha.Accounts.User
   alias Pinha.Accounts.WebAuthn
 
   plug :redirect_if_signed_in when action in [:new_signup, :new_session]
@@ -42,7 +43,7 @@ defmodule PinhaWeb.AuthController do
   def signup_challenge(conn, %{"email" => email, "label" => label} = params) do
     case registration_mode(email, params) do
       {:new, email, authorization} ->
-        handle = :crypto.strong_rand_bytes(32)
+        handle = User.generate_handle()
         {options, challenge} = WebAuthn.registration(handle, email)
 
         conn
@@ -151,7 +152,8 @@ defmodule PinhaWeb.AuthController do
         Logger.warning("refused an assertion whose signature counter did not advance")
         fail(conn, 403, "this passkey looks cloned; register a new one")
 
-      _ ->
+      other ->
+        Logger.warning("sign-in failed: #{inspect(other)}")
         fail(conn, 403, "sign-in failed")
     end
   end
