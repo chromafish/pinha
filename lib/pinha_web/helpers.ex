@@ -3,25 +3,25 @@ defmodule PinhaWeb.Helpers do
 
   alias Pinha.Config
 
-  @doc "Path of a repository summary page."
-  def repo_path(name), do: "/" <> segment(name)
+  @doc "Path of a repository summary page. Repositories live under `/r`."
+  def repo_path(name), do: "/r/" <> segment(name)
 
   @doc "Path of a tree or blob page at a revision."
   def tree_path(name, rev, path \\ "")
-  def tree_path(name, rev, ""), do: "/#{segment(name)}/tree/#{segment(rev)}"
+  def tree_path(name, rev, ""), do: "/r/#{segment(name)}/tree/#{segment(rev)}"
 
   def tree_path(name, rev, path),
-    do: "/#{segment(name)}/tree/#{segment(rev)}/#{path_segments(path)}"
+    do: "/r/#{segment(name)}/tree/#{segment(rev)}/#{path_segments(path)}"
 
   @doc "Path of the raw bytes of a blob."
   def raw_path(name, rev, path),
-    do: "/#{segment(name)}/raw/#{segment(rev)}/#{path_segments(path)}"
+    do: "/r/#{segment(name)}/raw/#{segment(rev)}/#{path_segments(path)}"
 
   @doc "Path of a commit page."
-  def commit_path(name, id), do: "/#{segment(name)}/commit/#{segment(id)}"
+  def commit_path(name, id), do: "/r/#{segment(name)}/commit/#{segment(id)}"
 
   @doc "Clone URL built from the configured public base URL."
-  def clone_url(name), do: Config.base_url() <> "/" <> segment(name) <> ".git"
+  def clone_url(name), do: Config.base_url() <> "/r/" <> segment(name) <> ".git"
 
   @doc """
   SSH clone URL.

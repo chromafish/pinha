@@ -90,10 +90,15 @@ defmodule PinhaWeb.Router do
 
     get "/", RepoController, :index
     post "/repos", RepoController, :create
+  end
+
+  scope "/r", PinhaWeb do
+    pipe_through :management
+
     delete "/:repo", RepoController, :delete
   end
 
-  scope "/", PinhaWeb do
+  scope "/r", PinhaWeb do
     pipe_through :git
 
     get "/:repo/info/refs", GitHttpController, :info_refs
@@ -101,7 +106,7 @@ defmodule PinhaWeb.Router do
     post "/:repo/git-receive-pack", GitHttpController, :receive_pack
   end
 
-  scope "/", PinhaWeb do
+  scope "/r", PinhaWeb do
     pipe_through [:browser, :signed_in]
 
     post "/:repo/owner", RepoController, :set_owner

@@ -6,11 +6,11 @@ defmodule PinhaWeb.ObservabilityTest do
   test "the widelog line carries the canonical request fields", %{conn: conn} do
     seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
 
-    conn = conn |> put_req_header("user-agent", "git/2.50.1") |> get("/demo/tree/main/a.txt")
+    conn = conn |> put_req_header("user-agent", "git/2.50.1") |> get("/r/demo/tree/main/a.txt")
     line = Observability.line(conn, Observability.route(conn), 12.5)
 
     assert line.method == "GET"
-    assert line.route == "/:repo/tree/:rev/*path"
+    assert line.route == "/r/:repo/tree/:rev/*path"
     assert line.repo == "demo"
     assert line.rev == "main"
     assert line.status == 200
@@ -38,7 +38,7 @@ defmodule PinhaWeb.ObservabilityTest do
     conn =
       signed_in_conn()
       |> put_req_header("content-type", "application/x-git-receive-pack-request")
-      |> post("/demo.git/git-receive-pack", body)
+      |> post("/r/demo.git/git-receive-pack", body)
 
     line = Observability.line(conn, Observability.route(conn), 1.0)
 
@@ -56,7 +56,7 @@ defmodule PinhaWeb.ObservabilityTest do
   end
 
   test "the route is reported even when nothing matched", %{conn: conn} do
-    conn = get(conn, "/demo/nope/deeper")
+    conn = get(conn, "/r/demo/nope/deeper")
     assert Observability.route(conn) == "unmatched"
   end
 end

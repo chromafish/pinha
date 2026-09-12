@@ -10,7 +10,7 @@ defmodule Pinha.Ssh.CommandTest do
     end
 
     test "reaches the same repository however the remote was written" do
-      for path <- ["demo.git", "/demo.git", "~/demo.git", "demo", "/demo"] do
+      for path <- ["demo.git", "/demo.git", "~/demo.git", "demo", "/r/demo.git", "r/demo"] do
         assert Command.parse("git-upload-pack '#{path}'") == {:ok, "upload-pack", "demo"}
       end
     end

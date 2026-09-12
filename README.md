@@ -115,7 +115,7 @@ minted at `/settings` instead. Your email is the username, the token is the
 password:
 
 ```sh
-git clone https://you@example.com:pinha_xxx@git.example.com/demo.git
+git clone https://you@example.com:pinha_xxx@git.example.com/r/demo.git
 ```
 
 A credential helper stores it after the first prompt.
@@ -123,7 +123,7 @@ A credential helper stores it after the first prompt.
 SSH is the other way in:
 
 ```sh
-git clone ssh://git@git.example.com:2222/demo.git
+git clone ssh://git@git.example.com:2222/demo.git   # /r/demo.git too
 ```
 
 Everything but `/signin` and `/signup` requires a user. Lose every

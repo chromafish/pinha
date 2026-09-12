@@ -29,7 +29,7 @@ Git commit with metadata, parents, full diff, and preserved trailers including `
 
 === Surface
 
-HTTP and git transport surface: UI routes (`GET /`, `GET /:repo`, `GET /:repo/tree/:rev/*path`, `GET /:repo/commit/:id`, `GET /:repo/raw/:rev/*path`), smart HTTP (`GET /:repo/info/refs`, `POST /:repo/git-upload-pack`, `POST /:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key / trace exporter config, JSON widelogs, OpenTelemetry traces, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
+HTTP and git transport surface: UI routes (`GET /`, `GET /r/:repo`, `GET /r/:repo/tree/:rev/*path`, `GET /r/:repo/commit/:id`, `GET /r/:repo/raw/:rev/*path`), smart HTTP (`GET /r/:repo/info/refs`, `POST /r/:repo/git-upload-pack`, `POST /r/:repo/git-receive-pack`), SSH (one exec channel per connection running `git-upload-pack` or `git-receive-pack` against one repository), and operating surface (repo root / HTTP listen address / base URL / SSH listener and host key / trace exporter config, JSON widelogs, OpenTelemetry traces, background maintenance). Credentials for both git transports are link:0002.pinha.authentication.adoc[Authentication].
 
 == Mechanics
 
@@ -47,11 +47,11 @@ The listing includes every child directory ending in `.git` that is a valid bare
 
 ==== Delete
 
-Delete is `DELETE /:repo`, allowed to the owner and to admins. The server first renames `<name>.git` out of the listing, so new requests stop resolving it while in-flight ones drain, then removes the renamed directory asynchronously. Rename is delete plus create in v0.1, and update is push.
+Delete is `DELETE /r/:repo`, allowed to the owner and to admins. The server first renames `<name>.git` out of the listing, so new requests stop resolving it while in-flight ones drain, then removes the renamed directory asynchronously. Rename is delete plus create in v0.1, and update is push.
 
 === Access
 
-Every authenticated user reads every repository: the listing, the browse routes, raw blobs, `info/refs`, and `upload-pack` ask for nothing beyond a session, a token, or a key. Writing is narrower. `receive-pack` and `DELETE /:repo` require the repo's owner or an admin, and the refusal is a `403` over HTTP and a message on stderr with a non-zero exit over SSH; the git process never starts in either case, so nothing reaches the repo on disk.
+Every authenticated user reads every repository: the listing, the browse routes, raw blobs, `info/refs`, and `upload-pack` ask for nothing beyond a session, a token, or a key. Writing is narrower. `receive-pack` and `DELETE /r/:repo` require the repo's owner or an admin, and the refusal is a `403` over HTTP and a message on stderr with a non-zero exit over SSH; the git process never starts in either case, so nothing reaches the repo on disk.
 
 Ownership lives in the repo's own `config` as `pinha.owner`, holding the owner's `uid`. Storing it in git keeps a repo restored from a filesystem copy carrying its owner, and the `uid` is stable under everything a user can change about themselves, so renaming an email or replacing a passkey leaves every repo owned by the same person. Rendering an owner costs one lookup by `uid`, batched into a single query for the repo list. Setting one is `Pinha.Repos.set_owner/2` from the release console or an owner picker on the repo page, both of which take an email and write the `uid`; the page also shows the `uid` for anyone editing `config` by hand.
 
@@ -64,10 +64,10 @@ One function decides, and both transports call it before any git process starts:
 The UI serves a repo list with name, default-branch head, and `description` contents when present, plus per-repo summary pages with default branch, owner, clone URLs, branch list, and recent commits. Routes:
 
 * `GET /` — repo list.
-* `GET /:repo` — summary.
-* `GET /:repo/tree/:rev/*path` — file listing or blob at `:rev`, defaulting to the default branch.
-* `GET /:repo/commit/:id` — metadata, parents, and full diff.
-* `GET /:repo/raw/:rev/*path` — raw blob bytes.
+* `GET /r/:repo` — summary.
+* `GET /r/:repo/tree/:rev/*path` — file listing or blob at `:rev`, defaulting to the default branch.
+* `GET /r/:repo/commit/:id` — metadata, parents, and full diff.
+* `GET /r/:repo/raw/:rev/*path` — raw blob bytes.
 
 A `:rev` resolves as full commit ID first, then branch, then tag, then Jujutsu change ID (full or unique prefix); short commit IDs are not resolved, while change-ID prefixes are, and ambiguous prefixes list all matches. Commit and history views show the Git commit ID plus the `change-id` trailer when present, with divergent commits sharing one change ID shown individually and no grouping in v0.1. The server never runs `jj` and only preserves the `change-id` trailers clients send, so `jj git clone` and `jj git fetch` use the same smart-HTTP endpoints as git.
 
@@ -75,13 +75,13 @@ Git is the source of truth. There is no metadata store and no index; each reques
 
 === Clone and push
 
-Two transports serve the same repositories and the same refs. Smart HTTP is `GET /:repo/info/refs`, `POST /:repo/git-upload-pack` for clone and fetch, and `POST /:repo/git-receive-pack` for push. SSH is `git@<host>:<name>.git`, which git and `jj` turn into an exec request for `git-upload-pack '<path>'` or `git-receive-pack '<path>'`, and which is the nicer push UX: the key is already in the agent, so nothing prompts. The server advertises all branches and tags with no filtering on either transport. Push covers `refs/heads/*` and `refs/tags/*` for create, update, delete, and force-push, with no protection and no other namespaces in v0.1. Concurrent pushes to the same ref serialize on git's own locking, so the loser retries. Maintenance runs in supervised background processes, which are cheap in Elixir: a task after each receive runs `git gc --auto`, plus a periodic job handles pruning and repacking without blocking push responses. Pushes preserve commit trailers including `change-id`, the server never rewrites commits, and `jj git push` works unchanged over both.
+Two transports serve the same repositories and the same refs. Smart HTTP is `GET /r/:repo/info/refs`, `POST /r/:repo/git-upload-pack` for clone and fetch, and `POST /r/:repo/git-receive-pack` for push. SSH is `git@<host>:<name>.git`, which git and `jj` turn into an exec request for `git-upload-pack '<path>'` or `git-receive-pack '<path>'`, and which is the nicer push UX: the key is already in the agent, so nothing prompts. The server advertises all branches and tags with no filtering on either transport. Push covers `refs/heads/*` and `refs/tags/*` for create, update, delete, and force-push, with no protection and no other namespaces in v0.1. Concurrent pushes to the same ref serialize on git's own locking, so the loser retries. Maintenance runs in supervised background processes, which are cheap in Elixir: a task after each receive runs `git gc --auto`, plus a periodic job handles pruning and repacking without blocking push responses. Pushes preserve commit trailers including `change-id`, the server never rewrites commits, and `jj git push` works unchanged over both.
 
 ==== SSH
 
 The release runs the Erlang `:ssh` daemon under its own supervisor on a configured port, defaulting to 2222, with no OpenSSH, no OS account per user, and no `authorized_keys` file on disk. Only public-key authentication is offered, so password and keyboard-interactive prompts never appear, and every client connects as the single SSH user `git`, with identity coming from the key. The daemon resolves an offered key to a user by SHA-256 fingerprint during authentication and binds the connection to that user for its lifetime, so the channel that later runs git already knows the pusher. Keys are registered in the UI and belong to users; see link:0002.pinha.authentication.adoc[Authentication].
 
-A session may do one thing: exec `git-upload-pack` or `git-receive-pack` against one repository. The command string is parsed without a shell into exactly two words, the verb checked against that allowlist and the argument against the same `<name>.git` rules an HTTP `:repo` segment gets, with a leading `/` or `~/` stripped so `git@host:foo.git` and `ssh://git@host/foo.git` reach the same repo. `git-upload-archive` is outside the allowlist, and so is every other verb. A shell, a PTY, sftp, port or agent forwarding, or a second exec is refused with a message on stderr and a non-zero exit, so a stolen key buys a git session and no more.
+A session may do one thing: exec `git-upload-pack` or `git-receive-pack` against one repository. The command string is parsed without a shell into exactly two words, the verb checked against that allowlist and the argument against the same `<name>.git` rules an HTTP `:repo` segment gets, with a leading `/`, `~/`, or `r/` stripped so `git@host:foo.git`, `ssh://git@host/foo.git`, and a path copied from the browser all reach the same repo. `git-upload-archive` is outside the allowlist, and so is every other verb. A shell, a PTY, sftp, port or agent forwarding, or a second exec is refused with a message on stderr and a non-zero exit, so a stolen key buys a git session and no more.
 
 git is spawned from an argv list and never through a shell, so quoting in the command string cannot become execution. Environment requests from the client are dropped except `GIT_PROTOCOL`, whose value must match `version=2`; passing the rest through would let a session set `GIT_ALTERNATE_OBJECT_DIRECTORIES` or a `GIT_CONFIG_*` pair and read objects outside the repository it asked for.
 

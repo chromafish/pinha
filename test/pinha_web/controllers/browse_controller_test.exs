@@ -26,38 +26,40 @@ defmodule PinhaWeb.BrowseControllerTest do
 
   describe "tree" do
     test "lists the root of the default branch", %{conn: conn} do
-      html = conn |> get("/demo/tree") |> html_response(200)
+      html = conn |> get("/r/demo/tree") |> html_response(200)
       assert html =~ "README.md"
       assert html =~ "src/"
       assert html =~ "branch"
     end
 
     test "lists a subdirectory and links back to its parent", %{conn: conn} do
-      html = conn |> get("/demo/tree/main/src") |> html_response(200)
+      html = conn |> get("/r/demo/tree/main/src") |> html_response(200)
       assert html =~ "a.ex"
-      assert html =~ "/demo/tree/main\""
+      assert html =~ "/r/demo/tree/main\""
     end
 
     test "renders a blob with line numbers", %{conn: conn} do
-      html = conn |> get("/demo/tree/main/README.md") |> html_response(200)
+      html = conn |> get("/r/demo/tree/main/README.md") |> html_response(200)
       assert html =~ "hello"
       assert html =~ "world"
       assert html =~ "Raw"
     end
 
     test "does not try to render binary files", %{conn: conn} do
-      assert conn |> get("/demo/tree/main/bin/blob") |> html_response(200) =~ "Binary file"
+      assert conn |> get("/r/demo/tree/main/bin/blob") |> html_response(200) =~ "Binary file"
     end
 
     test "browses at a full commit id and at a change id", %{
       conn: conn,
       commits: [_second, first]
     } do
-      assert conn |> get("/demo/tree/#{first.id}/README.md") |> html_response(200) =~ "hello"
-      assert conn |> get("/demo/tree/#{@first_change}/README.md") |> html_response(200) =~ "hello"
+      assert conn |> get("/r/demo/tree/#{first.id}/README.md") |> html_response(200) =~ "hello"
+
+      assert conn |> get("/r/demo/tree/#{@first_change}/README.md") |> html_response(200) =~
+               "hello"
 
       prefix = binary_part(@first_change, 0, 6)
-      assert conn |> get("/demo/tree/#{prefix}") |> html_response(200) =~ "README.md"
+      assert conn |> get("/r/demo/tree/#{prefix}") |> html_response(200) =~ "README.md"
     end
 
     test "an ambiguous change id lists every match", %{conn: conn, repo: repo} do
@@ -67,30 +69,30 @@ defmodule PinhaWeb.BrowseControllerTest do
       git!(work, ["commit", "--quiet", "-am", "divergent\n\nchange-id: #{@second_change}"])
       git!(work, ["push", "--quiet", "origin", "HEAD:refs/heads/other"])
 
-      html = conn |> get("/demo/tree/#{@second_change}") |> html_response(300)
+      html = conn |> get("/r/demo/tree/#{@second_change}") |> html_response(300)
       assert html =~ "Ambiguous change id"
       assert html =~ "matches 2 commits"
       assert html =~ "divergent"
     end
 
     test "404s for unknown revisions and paths", %{conn: conn} do
-      assert conn |> get("/demo/tree/nope") |> html_response(404) =~ "no such revision"
-      assert conn |> get("/demo/tree/main/nope") |> html_response(404) =~ "no such path"
+      assert conn |> get("/r/demo/tree/nope") |> html_response(404) =~ "no such revision"
+      assert conn |> get("/r/demo/tree/main/nope") |> html_response(404) =~ "no such path"
     end
 
     test "short commit ids do not resolve", %{conn: conn, commits: [head | _]} do
       short = binary_part(head.id, 0, 8)
-      assert conn |> get("/demo/tree/#{short}") |> html_response(404)
+      assert conn |> get("/r/demo/tree/#{short}") |> html_response(404)
     end
 
     test "rejects paths that try to escape the tree", %{conn: conn} do
-      assert conn |> get("/demo/tree/main/..%2Fetc") |> html_response(400) =~ "invalid path"
+      assert conn |> get("/r/demo/tree/main/..%2Fetc") |> html_response(400) =~ "invalid path"
     end
   end
 
   describe "raw" do
     test "serves the exact bytes with a non-sniffable content type", %{conn: conn} do
-      conn = get(conn, "/demo/raw/main/README.md")
+      conn = get(conn, "/r/demo/raw/main/README.md")
 
       assert response(conn, 200) == "hello\nworld\n"
       assert get_resp_header(conn, "content-type") == ["application/octet-stream"]
@@ -99,12 +101,12 @@ defmodule PinhaWeb.BrowseControllerTest do
     end
 
     test "serves binary blobs unchanged", %{conn: conn} do
-      assert response(get(conn, "/demo/raw/main/bin/blob"), 200) == <<0, 1, 2, 3>>
+      assert response(get(conn, "/r/demo/raw/main/bin/blob"), 200) == <<0, 1, 2, 3>>
     end
 
     test "404s for directories and missing files", %{conn: conn} do
-      assert conn |> get("/demo/raw/main/src") |> html_response(404)
-      assert conn |> get("/demo/raw/main/nope") |> html_response(404)
+      assert conn |> get("/r/demo/raw/main/src") |> html_response(404)
+      assert conn |> get("/r/demo/raw/main/nope") |> html_response(404)
     end
   end
 
@@ -113,7 +115,7 @@ defmodule PinhaWeb.BrowseControllerTest do
       conn: conn,
       commits: [head, root]
     } do
-      html = conn |> get("/demo/commit/#{head.id}") |> html_response(200)
+      html = conn |> get("/r/demo/commit/#{head.id}") |> html_response(200)
 
       assert html =~ head.id
       assert html =~ @second_change
@@ -125,21 +127,21 @@ defmodule PinhaWeb.BrowseControllerTest do
     end
 
     test "shows a root commit as parentless", %{conn: conn, commits: [_head, root]} do
-      html = conn |> get("/demo/commit/#{root.id}") |> html_response(200)
+      html = conn |> get("/r/demo/commit/#{root.id}") |> html_response(200)
       assert html =~ "none, root commit"
       assert html =~ "+hello"
     end
 
     test "accepts a change id in place of a commit id", %{conn: conn, commits: [_head, root]} do
-      assert conn |> get("/demo/commit/#{@first_change}") |> html_response(200) =~ root.id
+      assert conn |> get("/r/demo/commit/#{@first_change}") |> html_response(200) =~ root.id
     end
 
     test "404s for unknown commits", %{conn: conn} do
-      assert conn |> get("/demo/commit/#{String.duplicate("0", 40)}") |> html_response(404)
+      assert conn |> get("/r/demo/commit/#{String.duplicate("0", 40)}") |> html_response(404)
     end
   end
 
   test "browsing an unknown repository 404s", %{conn: conn} do
-    assert conn |> get("/missing/tree/main") |> html_response(404) =~ "no such repository"
+    assert conn |> get("/r/missing/tree/main") |> html_response(404) =~ "no such repository"
   end
 end

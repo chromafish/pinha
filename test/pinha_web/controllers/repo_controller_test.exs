@@ -14,7 +14,7 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "the demo repo"
       assert html =~ "first commit"
       assert html =~ "main"
-      assert html =~ ~s(href="/demo")
+      assert html =~ ~s(href="/r/demo")
     end
 
     test "says so when there are no repositories", %{conn: conn} do
@@ -31,7 +31,7 @@ defmodule PinhaWeb.RepoControllerTest do
                |> json_response(200)
 
       assert repo["name"] == "demo"
-      assert repo["clone_url"] =~ "/demo.git"
+      assert repo["clone_url"] =~ "/r/demo.git"
     end
   end
 
@@ -40,15 +40,15 @@ defmodule PinhaWeb.RepoControllerTest do
       conn = post(conn, "/repos", %{"name" => "demo"})
 
       assert %{"name" => "demo", "url" => url} = json_response(conn, 201)
-      assert url =~ "/demo.git"
-      assert get_resp_header(conn, "location") == ["/demo"]
+      assert url =~ "/r/demo.git"
+      assert get_resp_header(conn, "location") == ["/r/demo"]
       assert {:ok, _} = Repos.fetch("demo")
     end
 
     test "a form submission redirects to the new repository", %{conn: conn} do
       conn = conn |> browser() |> post("/repos", %{"name" => "demo"})
 
-      assert redirected_to(conn) == "/demo"
+      assert redirected_to(conn) == "/r/demo"
     end
 
     test "the second create of a name loses with 409", %{conn: conn} do
@@ -76,20 +76,20 @@ defmodule PinhaWeb.RepoControllerTest do
 
       git!(repo.dir, ["tag", "v1", "main"])
 
-      html = conn |> get("/demo") |> html_response(200)
+      html = conn |> get("/r/demo") |> html_response(200)
       assert html =~ "default"
       assert html =~ "main"
       assert html =~ "v1"
       assert html =~ "second commit"
       assert html =~ "first commit"
       assert html =~ "kmpsxwvr"
-      assert html =~ "/demo.git"
+      assert html =~ "/r/demo.git"
       assert html =~ "ssh://git@"
     end
 
     test "resolves a name given with the .git suffix", %{conn: conn} do
       create_repo!("demo")
-      assert conn |> get("/demo.git") |> html_response(200) =~ "demo"
+      assert conn |> get("/r/demo.git") |> html_response(200) =~ "demo"
     end
 
     test "reports an invalid repository directory instead of repairing it", %{
@@ -98,7 +98,7 @@ defmodule PinhaWeb.RepoControllerTest do
     } do
       File.mkdir_p!(Path.join(root, "broken.git"))
 
-      assert conn |> browser() |> get("/broken") |> html_response(500) =~
+      assert conn |> browser() |> get("/r/broken") |> html_response(500) =~
                "not a valid bare repository"
 
       assert File.ls!(Path.join(root, "broken.git")) == []
@@ -106,9 +106,9 @@ defmodule PinhaWeb.RepoControllerTest do
     end
 
     test "404s for a missing repository and 400s for an invalid name", %{conn: conn} do
-      assert conn |> get("/missing") |> html_response(404) =~ "no such repository"
+      assert conn |> get("/r/missing") |> html_response(404) =~ "no such repository"
 
-      assert signed_in_conn() |> get("/..%2Fevil") |> html_response(400) =~
+      assert signed_in_conn() |> get("/r/..%2Fevil") |> html_response(400) =~
                "invalid repository name"
     end
   end
@@ -118,9 +118,9 @@ defmodule PinhaWeb.RepoControllerTest do
       create_repo!("demo", admin)
       other = user_fixture()
 
-      conn = conn |> browser() |> post("/demo/owner", %{"email" => other.email})
+      conn = conn |> browser() |> post("/r/demo/owner", %{"email" => other.email})
 
-      assert redirected_to(conn) == "/demo"
+      assert redirected_to(conn) == "/r/demo"
       assert {:ok, repo} = Repos.fetch("demo")
       assert repo.owner_uid == other.uid
     end
@@ -130,7 +130,7 @@ defmodule PinhaWeb.RepoControllerTest do
       create_repo!("demo", owner)
       conn = log_in_user(build_conn(), user_fixture()) |> browser()
 
-      assert conn |> post("/demo/owner", %{"email" => "whoever@example.com"}) |> response(403) =~
+      assert conn |> post("/r/demo/owner", %{"email" => "whoever@example.com"}) |> response(403) =~
                "only the owner or an admin"
 
       assert {:ok, repo} = Repos.fetch("demo")
@@ -142,7 +142,7 @@ defmodule PinhaWeb.RepoControllerTest do
 
       assert conn
              |> browser()
-             |> post("/demo/owner", %{"email" => "nobody@example.com"})
+             |> post("/r/demo/owner", %{"email" => "nobody@example.com"})
              |> response(404) =~ "no user with that email"
     end
   end
@@ -151,28 +151,28 @@ defmodule PinhaWeb.RepoControllerTest do
     test "removes the repository from the listing", %{conn: conn} do
       create_repo!("demo")
 
-      assert conn |> delete("/demo") |> response(204)
+      assert conn |> delete("/r/demo") |> response(204)
       assert Repos.list() == []
     end
 
     test "a form submission redirects to the listing", %{conn: conn} do
       create_repo!("demo")
 
-      conn = conn |> browser() |> post("/demo", %{"_method" => "delete"})
+      conn = conn |> browser() |> post("/r/demo", %{"_method" => "delete"})
 
       assert redirected_to(conn) == "/"
       assert Repos.list() == []
     end
 
     test "404s for a missing repository", %{conn: conn} do
-      assert conn |> delete("/missing") |> json_response(404)
+      assert conn |> delete("/r/missing") |> json_response(404)
     end
 
     test "is refused to someone who does not own it" do
       create_repo!("demo", user_fixture())
       conn = log_in_user(build_conn(), user_fixture())
 
-      assert conn |> delete("/demo") |> response(403)
+      assert conn |> delete("/r/demo") |> response(403)
       assert [_repo] = Repos.list()
     end
   end
@@ -189,16 +189,16 @@ defmodule PinhaWeb.RepoControllerTest do
       owner = user_fixture()
       create_repo!("demo", owner)
 
-      html = log_in_user(build_conn(), owner) |> get("/demo") |> html_response(200)
+      html = log_in_user(build_conn(), owner) |> get("/r/demo") |> html_response(200)
       assert html =~ owner.email
       assert html =~ "hand to (email)"
 
       stranger = log_in_user(build_conn(), user_fixture())
-      html = stranger |> get("/demo") |> html_response(200)
+      html = stranger |> get("/r/demo") |> html_response(200)
       assert html =~ owner.email
       refute html =~ "hand to (email)"
 
-      assert log_in_user(build_conn(), admin) |> get("/demo") |> html_response(200) =~
+      assert log_in_user(build_conn(), admin) |> get("/r/demo") |> html_response(200) =~
                "hand to (email)"
     end
   end

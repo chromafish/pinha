@@ -6,7 +6,7 @@ defmodule PinhaWeb.GitHttpControllerTest do
   @change_id "kmpsxwvrlouvzysnkulnnnttrrytwstn"
 
   setup %{user: user} do
-    [url: authenticated_url(user, "/demo.git")]
+    [url: authenticated_url(user, "/r/demo.git")]
   end
 
   test "clone, push, and clone back over HTTPS transport", %{url: url} do
@@ -100,25 +100,25 @@ defmodule PinhaWeb.GitHttpControllerTest do
   test "info/refs advertises the service and refuses the dumb protocol", %{conn: conn} do
     seed_repo!("demo", [%{message: "first", files: %{"a.txt" => "a\n"}}])
 
-    conn = get(conn, "/demo.git/info/refs?service=git-upload-pack")
+    conn = get(conn, "/r/demo.git/info/refs?service=git-upload-pack")
     assert response_content_type(conn, :"x-git-upload-pack-advertisement")
     body = response(conn, 200)
     assert String.starts_with?(body, "001e# service=git-upload-pack\n0000")
     assert body =~ "refs/heads/main"
     assert get_resp_header(conn, "cache-control") == ["no-cache, max-age=0, must-revalidate"]
 
-    assert response(get(signed_in_conn(), "/demo.git/info/refs"), 403) =~ "smart HTTP"
-    assert response(get(signed_in_conn(), "/demo.git/info/refs?service=git-evil"), 403)
+    assert response(get(signed_in_conn(), "/r/demo.git/info/refs"), 403) =~ "smart HTTP"
+    assert response(get(signed_in_conn(), "/r/demo.git/info/refs?service=git-evil"), 403)
   end
 
   test "unknown and invalid repositories are rejected", %{conn: conn} do
-    assert response(get(conn, "/missing.git/info/refs?service=git-upload-pack"), 404)
-    assert response(get(signed_in_conn(), "/..%2Fevil/info/refs?service=git-upload-pack"), 400)
+    assert response(get(conn, "/r/missing.git/info/refs?service=git-upload-pack"), 404)
+    assert response(get(signed_in_conn(), "/r/..%2Fevil/info/refs?service=git-upload-pack"), 400)
 
     conn =
       signed_in_conn()
       |> put_req_header("content-type", "application/x-git-upload-pack-request")
-      |> post("/missing.git/git-upload-pack", "0000")
+      |> post("/r/missing.git/git-upload-pack", "0000")
 
     assert response(conn, 404)
   end
@@ -130,7 +130,7 @@ defmodule PinhaWeb.GitHttpControllerTest do
       signed_in_conn()
       |> put_req_header("content-type", "application/x-git-upload-pack-request")
       |> put_req_header("content-encoding", "gzip")
-      |> post("/demo.git/git-upload-pack", :zlib.gzip("0000"))
+      |> post("/r/demo.git/git-upload-pack", :zlib.gzip("0000"))
 
     assert response(conn, 200) == ""
     assert response_content_type(conn, :"x-git-upload-pack-result")
@@ -142,7 +142,7 @@ defmodule PinhaWeb.GitHttpControllerTest do
       {:ok, _} = Repos.set_owner("demo", admin.email)
 
       ordinary = user_fixture()
-      url = authenticated_url(ordinary, "/demo.git")
+      url = authenticated_url(ordinary, "/r/demo.git")
       work = tmp_dir!()
       clone = Path.join(work, "one")
 
@@ -161,7 +161,7 @@ defmodule PinhaWeb.GitHttpControllerTest do
 
     test "the owner pushes", %{user: admin} do
       create_repo!("demo", admin)
-      url = authenticated_url(admin, "/demo.git")
+      url = authenticated_url(admin, "/r/demo.git")
       work = tmp_dir!()
       clone = Path.join(work, "one")
 

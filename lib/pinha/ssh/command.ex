@@ -44,8 +44,12 @@ defmodule Pinha.Ssh.Command do
     path
     |> String.trim_leading("~")
     |> String.trim_leading("/")
+    |> strip_namespace()
     |> Repos.normalize_name()
   end
+
+  defp strip_namespace("r/" <> rest), do: rest
+  defp strip_namespace(path), do: path
 
   @doc """
   Splits a command string into words the way a POSIX shell would.

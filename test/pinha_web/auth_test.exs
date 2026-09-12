@@ -68,7 +68,7 @@ defmodule PinhaWeb.AuthTest do
     end
 
     test "challenges an anonymous client so git knows to send credentials" do
-      conn = build_conn() |> get("/demo.git/info/refs?service=git-upload-pack")
+      conn = build_conn() |> get("/r/demo.git/info/refs?service=git-upload-pack")
 
       assert response(conn, 401)
       assert get_resp_header(conn, "www-authenticate") == [~s(Basic realm="pinha")]
@@ -80,7 +80,7 @@ defmodule PinhaWeb.AuthTest do
       conn =
         build_conn()
         |> put_req_header("authorization", basic(user.email, secret))
-        |> get("/demo.git/info/refs?service=git-upload-pack")
+        |> get("/r/demo.git/info/refs?service=git-upload-pack")
 
       assert response(conn, 200) =~ "service=git-upload-pack"
     end
@@ -92,7 +92,7 @@ defmodule PinhaWeb.AuthTest do
       conn =
         build_conn()
         |> put_req_header("authorization", basic(user.email, secret))
-        |> get("/demo.git/info/refs?service=git-upload-pack")
+        |> get("/r/demo.git/info/refs?service=git-upload-pack")
 
       assert response(conn, 401)
     end
