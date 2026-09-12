@@ -18,6 +18,7 @@ defmodule Pinha.Accounts do
   alias Pinha.Accounts.Credential
   alias Pinha.Accounts.Invite
   alias Pinha.Accounts.Session
+  alias Pinha.Accounts.SessionCache
   alias Pinha.Accounts.SshKey
   alias Pinha.Accounts.User
   alias Pinha.Repo
@@ -91,9 +92,14 @@ defmodule Pinha.Accounts do
   """
   @spec update_username(User.t(), map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def update_username(%User{} = user, attrs) do
-    user
-    |> User.username_changeset(attrs)
-    |> Repo.update()
+    case user |> User.username_changeset(attrs) |> Repo.update() do
+      {:ok, updated} ->
+        :ok = SessionCache.evict_user(updated.id)
+        {:ok, updated}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
   end
 
   @doc false
@@ -367,11 +373,14 @@ defmodule Pinha.Accounts do
   def create_session(user) do
     token = :crypto.strong_rand_bytes(@token_bytes)
 
-    Repo.insert!(%Session{
-      user_id: user.id,
-      token_hash: hash(token),
-      last_used_at: now()
-    })
+    session =
+      Repo.insert!(%Session{
+        user_id: user.id,
+        token_hash: hash(token),
+        last_used_at: now()
+      })
+
+    :ok = SessionCache.put(session.token_hash, user)
 
     token
   end
@@ -379,25 +388,41 @@ defmodule Pinha.Accounts do
   @doc "The user behind a session cookie, if the session is live."
   @spec fetch_user_by_session_token(binary()) :: {:ok, User.t()} | :error
   def fetch_user_by_session_token(token) when is_binary(token) do
+    token_hash = hash(token)
+
+    case SessionCache.fetch(token_hash) do
+      {:ok, user} -> {:ok, user}
+      {:miss, generation} -> fetch_session_from_repo(token_hash, generation)
+    end
+  end
+
+  defp fetch_session_from_repo(token_hash, generation) do
     cutoff = DateTime.add(now(), -@session_validity_days * 24 * 3600, :second)
 
     query =
       from(s in Session,
         join: u in assoc(s, :user),
-        where: s.token_hash == ^hash(token) and s.last_used_at > ^cutoff,
+        where: s.token_hash == ^token_hash and s.last_used_at > ^cutoff,
         select: {s, u}
       )
 
     case Repo.one(query) do
-      nil -> :error
-      {session, user} -> {:ok, touch(Session, session, user)}
+      nil ->
+        :error
+
+      {session, user} ->
+        user = touch(Session, session, user)
+        _ = SessionCache.put_if_fresh(token_hash, user, generation)
+        {:ok, user}
     end
   end
 
   @doc "Ends one session."
   @spec delete_session(binary()) :: :ok
   def delete_session(token) when is_binary(token) do
-    Repo.delete_all(from(s in Session, where: s.token_hash == ^hash(token)))
+    token_hash = hash(token)
+    Repo.delete_all(from(s in Session, where: s.token_hash == ^token_hash))
+    :ok = SessionCache.evict(token_hash)
     :ok
   end
 

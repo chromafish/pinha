@@ -16,6 +16,10 @@ config :pinha,
   maintenance_interval_ms: 6 * 60 * 60 * 1000,
   # Number of per-ref old/new tips carried in a push widelog line.
   log_max_refs: 20,
+  # A warm browser session stays in this node long enough to take Neon out of
+  # ordinary navigation. Postgres is consulted again after the bounded TTL.
+  session_cache_ttl_ms: 60_000,
+  session_cache_sweep_interval_ms: 60_000,
   # The SSH listener. The host key directory defaults to `.pinha/ssh` under
   # the repo root, which the repo listing skips for not ending in `.git`.
   ssh_enabled: true,

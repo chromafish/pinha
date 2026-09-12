@@ -11,6 +11,7 @@ defmodule Pinha.Application do
     children =
       [
         Pinha.Repo,
+        Pinha.Accounts.SessionCache,
         Pinha.Accounts.Registration,
         {Task.Supervisor, name: Pinha.TaskSupervisor},
         Pinha.Repos.Creator,

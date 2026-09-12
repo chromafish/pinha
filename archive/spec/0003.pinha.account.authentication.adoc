@@ -69,7 +69,9 @@ Sign-up looks the invite up by hash, which is the same single indexed read as an
 
 === Sessions
 
-A successful ceremony mints 32 random bytes, stores the SHA-256, and writes the raw value into the signed session cookie after renewing the session, so a fixated session cannot survive the sign-in. Sign-out deletes the row. Sessions expire 60 days after they were last used. The session logic follows the `phx.gen.auth` plug of the same shape.
+A successful ceremony mints 32 random bytes, stores the SHA-256, and writes the raw value into the signed session cookie after renewing the session, so a fixated session cannot survive the sign-in. Sign-out deletes the row. Sessions expire 60 days after they were last used.
+
+Successful lookups are cached in the node for one minute, keyed by that same SHA-256 rather than the raw token. A warm lookup reads ETS directly; a miss returns to Postgres and refreshes the entry. Sign-in seeds the entry, sign-out evicts it, and changing identity or authorization data evicts every entry for that user. Cache invalidation also advances a generation, so a database lookup already in flight cannot put stale data back after a logout or user change. Unknown tokens are never cached, and an expiry sweep bounds entries which receive no more traffic. The deployment is one node; running more than one would require cross-node invalidation or acceptance that revocation takes up to the cache TTL to reach every node.
 
 === Git transport
 
@@ -87,7 +89,7 @@ A user with no usable passkey is recovered by the operator, who authorizes one r
 
 === Operating
 
-Users persist in Postgres, reached with `DATABASE_URL`. The intended deployment is Neon: TLS with chain verification against the OS trust store, and unnamed prepared statements when the URL names a pooled endpoint, because that endpoint is PgBouncer in transaction mode. Repositories stay on disk and are still backed up by copying the repo root; the database is backed up by Neon. A database outage stops sign-in and token verification, so it stops git transport too.
+Users persist in Postgres, reached with `DATABASE_URL`. The intended deployment is Neon: TLS with chain verification against the OS trust store, and unnamed prepared statements when the URL names a pooled endpoint, because that endpoint is PgBouncer in transaction mode. Repositories stay on disk and are still backed up by copying the repo root; the database is backed up by Neon. A database outage stops sign-in and uncached session, access-token, and SSH-key verification, so it stops git transport too. Browser sessions already warm in ETS continue until their one-minute entries expire.
 
 Widelog lines and trace spans carry the user ID when a request is authenticated, and an SSH session carries the user its key resolved to.
 

@@ -40,6 +40,9 @@ defmodule PinhaWeb.ConnCase do
     owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Pinha.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
 
+    :ok = Pinha.Accounts.SessionCache.clear()
+    on_exit(fn -> Pinha.Accounts.SessionCache.clear() end)
+
     # The test's user stands in for whoever claimed the server, so they are an
     # admin; `user_fixture/1` makes an ordinary one.
     user = Pinha.AccountsFixtures.user_fixture(%{admin: true})

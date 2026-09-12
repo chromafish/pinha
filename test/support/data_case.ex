@@ -14,6 +14,9 @@ defmodule Pinha.DataCase do
   setup tags do
     owner = Ecto.Adapters.SQL.Sandbox.start_owner!(Pinha.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(owner) end)
+
+    :ok = Pinha.Accounts.SessionCache.clear()
+    on_exit(fn -> Pinha.Accounts.SessionCache.clear() end)
     :ok
   end
 end
