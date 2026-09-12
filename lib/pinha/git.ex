@@ -80,7 +80,7 @@ defmodule Pinha.Git do
   def span_attributes(dir, subcommand, args) do
     [
       {"git.subcommand", subcommand},
-      {"git.argv", Enum.join(args, " ")},
+      {"git.argv", Enum.map_join(args, " ", &scrub/1)},
       {"repo", Path.basename(dir, ".git")}
     ]
   end
@@ -143,7 +143,7 @@ defmodule Pinha.Git do
     Widelog.write(%{
       event: "git",
       repo: Path.basename(dir, ".git"),
-      argv: args,
+      argv: Enum.map(args, &scrub/1),
       status: status,
       stderr: stderr
     })

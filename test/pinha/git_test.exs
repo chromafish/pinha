@@ -218,6 +218,18 @@ defmodule Pinha.GitTest do
       assert "rev-parse" in line["argv"]
     end
 
+    test "bytes from a URL that are not UTF-8 do not break the line", %{repo: repo} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:error, {:exit, _}} =
+                   Git.run(repo.dir, ["cat-file", "-t", "HEAD:" <> <<0xFF>>])
+        end)
+
+      assert {:ok, line} = Jason.decode(output)
+      assert line["event"] == "git"
+      assert "cat-file" in line["argv"]
+    end
+
     test "a command that works logs nothing", %{repo: repo} do
       output =
         ExUnit.CaptureIO.capture_io(fn ->

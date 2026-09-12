@@ -53,7 +53,7 @@ defmodule PinhaWeb.Observability do
       path: "/" <> Enum.join(conn.path_info, "/"),
       route: route,
       repo: repo_name(conn),
-      rev: conn.path_params["rev"] || conn.path_params["id"],
+      rev: scrub(conn.path_params["rev"] || conn.path_params["id"]),
       git: conn.private[:pinha_git_service] || "none",
       user: conn.assigns[:current_user] && conn.assigns.current_user.id,
       status: conn.status || 0,
@@ -102,10 +102,15 @@ defmodule PinhaWeb.Observability do
       name ->
         case Pinha.Repos.normalize_name(name) do
           {:ok, normalized} -> normalized
-          {:error, _} -> name
+          {:error, _} -> scrub(name)
         end
     end
   end
+
+  # Path segments arrive percent-decoded, so they can hold bytes that are not
+  # UTF-8, and the line is JSON.
+  defp scrub(nil), do: nil
+  defp scrub(value), do: Pinha.Git.scrub(value)
 
   defp request_bytes(conn) do
     case header(conn, "content-length") do

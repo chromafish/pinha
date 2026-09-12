@@ -144,4 +144,30 @@ defmodule PinhaWeb.BrowseControllerTest do
   test "browsing an unknown repository 404s", %{conn: conn} do
     assert conn |> get("/r/missing/tree/main") |> html_response(404) =~ "no such repository"
   end
+
+  describe "a path that is not UTF-8" do
+    setup do
+      # The widelog is off in the suite, and writing the line is where this
+      # used to fail.
+      previous = Application.get_env(:pinha, :widelog)
+      Application.put_env(:pinha, :widelog, true)
+      on_exit(fn -> Application.put_env(:pinha, :widelog, previous) end)
+      :ok
+    end
+
+    test "is a 404 rather than a crash", %{conn: conn} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert conn |> get("/r/demo/tree/main/%FF") |> response(404)
+        end)
+
+      # git was asked for the path and failed, and the line encoded anyway.
+      assert output =~ ~s("event":"git")
+
+      assert Enum.all?(
+               String.split(output, "\n", trim: true),
+               &match?({:ok, _}, Jason.decode(&1))
+             )
+    end
+  end
 end
