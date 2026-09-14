@@ -3,6 +3,8 @@ defmodule PinhaWeb.Markdown do
   Markdown rendering for README files with sanitization and relative link resolution.
   """
 
+  require OpenTelemetry.Tracer, as: Tracer
+
   @doc """
   Renders `text` as sanitized HTML.
 
@@ -21,12 +23,30 @@ defmodule PinhaWeb.Markdown do
           {:safe, String.t()} | String.t()
   def to_html(text, kind, repo_name, rev_name, dir \\ "")
 
-  def to_html(text, :text, _repo, _rev, _dir) do
+  def to_html(text, :text, repo_name, rev_name, dir) do
+    render_html(text, :text, repo_name, rev_name, dir)
+  end
+
+  def to_html(text, :markdown, repo_name, rev_name, dir) do
+    attributes = [
+      {"repo", repo_name},
+      {"readme.kind", "markdown"},
+      {"readme.input_bytes", byte_size(text)}
+    ]
+
+    Tracer.with_span "readme parse", %{attributes: attributes} do
+      rendered = render_html(text, :markdown, repo_name, rev_name, dir)
+      Tracer.set_attribute("readme.output_bytes", rendered_size(rendered))
+      rendered
+    end
+  end
+
+  defp render_html(text, :text, _repo, _rev, _dir) do
     escaped = text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
     {:safe, "<pre class=\"readme-plain\">" <> escaped <> "</pre>"}
   end
 
-  def to_html(text, :markdown, repo_name, rev_name, dir) do
+  defp render_html(text, :markdown, repo_name, rev_name, dir) do
     case Earmark.as_html(text, gfm: true, breaks: false) do
       {:ok, html, _} ->
         html =
@@ -41,6 +61,9 @@ defmodule PinhaWeb.Markdown do
         {:safe, html}
     end
   end
+
+  defp rendered_size({:safe, html}), do: byte_size(html)
+  defp rendered_size(html), do: IO.iodata_length(html)
 
   @doc false
   def rewrite_relative(html, repo_name, rev_name, dir) do
