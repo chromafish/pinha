@@ -154,6 +154,30 @@ defmodule PinhaWeb.RepoControllerTest do
       refute html =~ "No commits have been pushed"
     end
 
+    test "lays out refs above the README and recent history", %{conn: conn} do
+      seed_repo!("demo", [
+        %{
+          message: "document the project",
+          files: %{"README.md" => "# Demo\n\nA useful project.\n"}
+        }
+      ])
+
+      html = conn |> get("/r/demo") |> html_response(200)
+
+      assert html =~ ~s(id="repository-refs")
+      assert html =~ ~s(class="ref-lanes")
+      assert html =~ ~s(id="repository-readme")
+      assert html =~ ~s(id="repository-history")
+      assert html =~ "Demo</h1>"
+
+      {refs_index, _length} = :binary.match(html, ~s(id="repository-refs"))
+      {readme_index, _length} = :binary.match(html, ~s(id="repository-readme"))
+      {history_index, _length} = :binary.match(html, ~s(id="repository-history"))
+
+      assert refs_index < readme_index
+      assert readme_index < history_index
+    end
+
     test "keeps Git terminology and emphasis for a plain repository", %{conn: conn} do
       seed_repo!("plain", [%{message: "plain commit", files: %{"a.txt" => "a\n"}}])
 

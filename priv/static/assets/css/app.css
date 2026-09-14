@@ -96,6 +96,98 @@ body {
 .pane.bare { padding-top: var(--sp-5); }  /* no header line to hold the top edge */
 .pane + .pane { border-left: 1px solid var(--border-subtle); }
 
+/* The repository overview keeps refs compact and scannable across the top,
+   leaving the reading surface and recent history beside each other below. */
+.repo-overview {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.repo-refs {
+  min-width: 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.repo-refs .lede {
+  max-width: none;
+  margin: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ref-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.ref-lane {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+}
+
+.ref-lane + .ref-lane { border-left: 1px solid var(--border-subtle); }
+
+.ref-lane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-width: 104px;
+  min-height: 40px;
+  padding: 0 var(--sp-5) 0 var(--edge);
+  background: var(--surface-row-alt);
+  border-right: 1px solid var(--border-subtle);
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ref-lane-head .count { margin-left: auto; color: var(--text-faint); }
+
+.ref-list {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.ref-item {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: 40px;
+  padding: 0 var(--sp-6);
+  white-space: nowrap;
+}
+
+.ref-item + .ref-item { border-left: 1px solid var(--border-subtle); }
+.ref-item .tag { margin-left: 0; }
+
+.ref-date {
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+
+.ref-empty {
+  min-width: max-content;
+  margin: 0;
+  padding: var(--sp-5) var(--sp-6);
+  font: var(--type-body);
+  color: var(--text-muted);
+}
+
+.repo-main {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(440px, 2fr);
+  min-height: 0;
+}
+
+.repo-main > .pane:only-child { grid-column: 1 / -1; }
+
 /* Settings are records to manage, rather than parallel console panes. Keep
    every record wide enough to read, and use a second column only when both
    columns can comfortably hold their largest table. */
@@ -205,6 +297,133 @@ body {
   border-color: var(--border-subtle);
   color: var(--text-faint);
 }
+
+/* ---- README ------------------------------------------------------------- */
+
+.readme-pane { background: var(--surface-panel); }
+
+.readme {
+  width: 100%;
+  max-width: calc(var(--measure) + var(--sp-12));
+  margin: 0 auto;
+  padding: var(--sp-9) clamp(var(--sp-6), 4vw, var(--sp-11)) var(--sp-12);
+  font: var(--type-editorial);
+  color: var(--text-body);
+  overflow-wrap: anywhere;
+}
+
+.region .readme-pane > .readme { margin-top: 0; }
+.readme > :first-child { margin-top: 0; }
+.readme > :last-child { margin-bottom: 0; }
+
+.readme h1,
+.readme h2,
+.readme h3,
+.readme h4,
+.readme h5,
+.readme h6 {
+  margin: var(--sp-9) 0 var(--sp-5);
+  color: var(--text-strong);
+}
+
+.readme h1 {
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--border-default);
+  font: var(--type-h1);
+  letter-spacing: var(--ls-heading);
+}
+
+.readme h2 {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+  font: var(--type-h2);
+  letter-spacing: var(--ls-heading);
+}
+
+.readme h3 { font: var(--type-h3); }
+.readme h4 { font: var(--type-h4); }
+
+.readme h5,
+.readme h6 {
+  font: var(--type-label);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+}
+
+.readme p,
+.readme ul,
+.readme ol,
+.readme blockquote,
+.readme pre,
+.readme table,
+.readme dl { margin: 0 0 var(--sp-6); }
+
+.readme ul,
+.readme ol { padding-left: var(--sp-8); }
+.readme ul { list-style: disc; }
+.readme ol { list-style: decimal; }
+.readme li { padding-left: var(--sp-2); }
+.readme li + li { margin-top: var(--sp-2); }
+.readme li > ul,
+.readme li > ol { margin: var(--sp-2) 0 0; }
+
+.readme .task-list { padding-left: 0; list-style: none; }
+.readme .task-list-item input { margin: 0 var(--sp-4) 0 0; }
+
+.readme blockquote {
+  padding: var(--sp-4) 0 var(--sp-4) var(--sp-6);
+  border-left: var(--bw-thick) solid var(--border-accent);
+  color: var(--text-muted);
+}
+
+.readme blockquote > :last-child { margin-bottom: 0; }
+
+.readme code,
+.readme kbd {
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-sunken);
+  font: var(--type-code);
+  color: var(--text-strong);
+}
+
+.readme pre {
+  max-width: 100%;
+  padding: var(--sp-6);
+  overflow: auto;
+  background: var(--surface-sunken);
+  border-left: var(--bw-thick) solid var(--border-accent);
+  font: var(--type-code);
+  color: var(--text-body);
+  white-space: pre;
+}
+
+.readme pre code { padding: 0; background: transparent; color: inherit; }
+.readme pre.readme-plain { white-space: pre-wrap; }
+
+.readme table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--type-body);
+}
+
+.readme th,
+.readme td {
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.readme th {
+  background: var(--surface-sunken);
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+
+.readme tbody tr:nth-child(even) { background: var(--surface-row-alt); }
+.readme hr { margin: var(--sp-9) 0; border-top-color: var(--border-default); }
+.readme img { display: block; max-width: 100%; height: auto; margin: var(--sp-7) auto; }
+.readme a { overflow-wrap: anywhere; }
 
 /* ---- tables: columns sized to content, 32px rows ------------------------ */
 
@@ -526,12 +745,19 @@ ul { list-style: none; margin: 0; padding: 0; }
   .panes.triple,
   .panes.quad { grid-template-columns: minmax(0, 1fr); }
   .pane + .pane { border-left: 0; border-top: 1px solid var(--border-default); }
+
+  .repo-overview { height: auto; min-height: 100%; }
+  .repo-main { display: block; }
+  .repo-main .pane { overflow: visible; }
 }
 
 /* Tables become labelled records before their columns can crowd the name or
    action off-screen. The table structure remains in the document for assistive
    technology, while every value gains a visible label in the compact layout. */
 @media (max-width: 640px) {
+  .ref-lanes { grid-template-columns: minmax(0, 1fr); }
+  .ref-lane + .ref-lane { border-left: 0; border-top: 1px solid var(--border-subtle); }
+
   .settings-table thead {
     position: absolute;
     width: 1px;
