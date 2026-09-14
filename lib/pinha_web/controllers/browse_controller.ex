@@ -28,9 +28,15 @@ defmodule PinhaWeb.BrowseController do
           target = %{target | change_id: change_id}
 
           case contents do
-            {:tree, entries, commits} -> render_tree(conn, repo, target, path, entries, commits)
-            {:blob, blob} -> render_blob(conn, repo, target, path, blob)
-            :error -> fail(conn, 404, "no such path at this revision")
+            {:tree, entries, commits} ->
+              readme = readme_for_tree(repo, target, path)
+              render_tree(conn, repo, target, path, entries, commits, readme)
+
+            {:blob, blob} ->
+              render_blob(conn, repo, target, path, blob)
+
+            :error ->
+              fail(conn, 404, "no such path at this revision")
           end
       end
     end)
@@ -111,15 +117,32 @@ defmodule PinhaWeb.BrowseController do
     end
   end
 
-  defp render_tree(conn, repo, target, path, entries, commits) do
+  defp render_tree(conn, repo, target, path, entries, commits, readme) do
     render(conn, :tree,
       repo: repo,
       target: target,
       path: path,
       entries: entries,
       commits: commits,
+      readme: readme,
       page_title: "#{repo.name}: #{path}"
     )
+  end
+
+  defp readme_for_tree(repo, target, path) do
+    case Git.readme(repo, target.id, path) do
+      {:ok, %{content: content, kind: kind, filename: filename}} ->
+        html = PinhaWeb.Markdown.to_html(content, kind, repo.name, target.name, path)
+
+        %{
+          filename: filename,
+          kind: kind,
+          html: html
+        }
+
+      :not_found ->
+        nil
+    end
   end
 
   defp render_blob(conn, repo, target, path, blob) do

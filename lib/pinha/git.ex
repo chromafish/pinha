@@ -605,6 +605,70 @@ defmodule Pinha.Git do
     end
   end
 
+  @doc """
+  README at `dir_path` in `rev` (empty string for the repository root).
+
+  Prefers `README.md` over `README`, case-sensitive first, then a
+  case-insensitive fallback by listing the tree. Returns the raw text and
+  whether it is Markdown.
+  """
+  @spec readme(Repo.t(), String.t() | nil, String.t()) ::
+          {:ok, %{filename: String.t(), content: String.t(), kind: :markdown | :text}}
+          | :not_found
+  def readme(repo, rev, dir_path \\ "")
+
+  def readme(_repo, nil, _dir_path), do: :not_found
+  def readme(_repo, "", _dir_path), do: :not_found
+
+  def readme(repo, rev, dir_path) when is_binary(rev) do
+    base = String.trim(dir_path, "/")
+    prefix = if base == "", do: "", else: base <> "/"
+
+    case fetch_readme(repo, rev, prefix <> "README.md", :markdown) do
+      {:ok, _} = ok ->
+        ok
+
+      :not_found ->
+        case fetch_readme(repo, rev, prefix <> "README", :text) do
+          {:ok, _} = ok -> ok
+          :not_found -> case_insensitive_readme(repo, rev, base)
+        end
+    end
+  end
+
+  defp fetch_readme(repo, rev, path, kind) do
+    case blob(repo, rev, path) do
+      {:ok, %{content: content, binary?: false, too_large?: false}} ->
+        {:ok, %{filename: path, content: scrub(content), kind: kind}}
+
+      _ ->
+        :not_found
+    end
+  end
+
+  defp case_insensitive_readme(repo, rev, base) do
+    case list_tree(repo, rev, base) do
+      {:ok, entries} ->
+        downcased = Map.new(entries, fn e -> {String.downcase(e.name), e.name} end)
+
+        cond do
+          name = Map.get(downcased, "readme.md") ->
+            path = if base == "", do: name, else: base <> "/" <> name
+            fetch_readme(repo, rev, path, :markdown)
+
+          name = Map.get(downcased, "readme") ->
+            path = if base == "", do: name, else: base <> "/" <> name
+            fetch_readme(repo, rev, path, :text)
+
+          true ->
+            :not_found
+        end
+
+      {:error, :not_found} ->
+        :not_found
+    end
+  end
+
   @doc "True when the content holds a NUL byte in its first 8000 bytes."
   @spec binary?(binary()) :: boolean()
   def binary?(content) do

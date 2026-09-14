@@ -133,6 +133,16 @@
     </section>
   </div>
 
+  <section :if={assigns[:readme]} class="pane readme-pane">
+    <header class="pane-head">
+      <span>README</span>
+      <span class="count">{@readme.filename}</span>
+    </header>
+    <div class="readme">
+      {@readme.html}
+    </div>
+  </section>
+
   <:controls>
     <div class="field-set">
       <span class="field">

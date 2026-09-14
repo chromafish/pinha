@@ -69,6 +69,8 @@ defmodule PinhaWeb.RepoController do
 
         commits = Enum.sort_by(commits, &author_timestamp/1, :desc)
 
+        readme = fetch_readme(repo, refs, commits)
+
         render(conn, :show,
           repo: repo,
           owner: owner,
@@ -78,7 +80,8 @@ defmodule PinhaWeb.RepoController do
           bookmarks: refs.bookmarks,
           tags: refs.tags,
           commits: commits,
-          repo_kind: presentation_kind(repo, Git.history_kind(commits))
+          repo_kind: presentation_kind(repo, Git.history_kind(commits)),
+          readme: readme
         )
 
       {:error, :invalid_name} ->
@@ -224,6 +227,35 @@ defmodule PinhaWeb.RepoController do
   defp presentation_kind(%{kind: :jj}, _history_kind), do: :jj
   defp presentation_kind(%{kind: :git}, :jj), do: :jj_via_git
   defp presentation_kind(%{kind: :git}, :git), do: :git
+
+  defp fetch_readme(repo, refs, commits) do
+    rev =
+      case refs.default_bookmark do
+        %{name: name} ->
+          name
+
+        nil ->
+          case commits do
+            [%{id: id} | _] -> id
+            [] -> nil
+          end
+      end
+
+    case rev && Git.readme(repo, rev, "") do
+      {:ok, %{content: content, kind: kind, filename: filename}} ->
+        html = PinhaWeb.Markdown.to_html(content, kind, repo.name, rev, "")
+
+        %{
+          filename: filename,
+          kind: kind,
+          rev: rev,
+          html: html
+        }
+
+      _ ->
+        nil
+    end
+  end
 
   defp author_timestamp(%{author_date: author_date}) do
     case DateTime.from_iso8601(author_date) do
