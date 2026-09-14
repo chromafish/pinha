@@ -5,6 +5,13 @@ This is a web application written using the Phoenix web framework.
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - One migration file per release, not per change: `priv/repo/migrations/<timestamp>_v<major>_<minor>.exs`. The release being worked on is unreleased, so schema changes are edited into its file and the database is recreated (`mix ecto.reset`); a new file is started only once that release is tagged
 
+### Commit patterns
+
+- When working, ensure you are in a fresh commit, to avoid mixing unrelated work in a single commit
+- Prefer short one-line messages, only write more prose if the change has a background history (its due to a bug, or its a setup for a future feature, for example)
+- If the work is mapped in a issue, end the commit with `Related-Issue: CHR-xx`.
+- Also add to the end of the commit `Assisted-By: <your model name and idenfitier, be as specific as possible, but do not add session specific identifiers>
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content

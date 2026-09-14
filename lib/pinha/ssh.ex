@@ -120,11 +120,37 @@ defmodule Pinha.Ssh do
         port = bound_port(daemon)
         :persistent_term.put({__MODULE__, :port}, port)
         Logger.info("ssh listening on port #{port}, host key #{host_key_fingerprint(dir)}")
+        log_kex_algorithms()
         %{daemon: daemon, port: port}
 
       {:error, reason} ->
         Logger.error("ssh listener failed to start: #{inspect(reason)}")
         %{daemon: nil, port: nil}
+    end
+  end
+
+  defp log_kex_algorithms do
+    # CHR-19: surface whether the runtime offers the PQ hybrid KEX.
+    # mlkem768x25519-sha256 appears in OTP 28.4 when crypto is linked against OpenSSL >=3.5.
+    algos =
+      try do
+        :ssh_transport.supported_algorithms(:kex)
+      rescue
+        _ -> []
+      catch
+        _, _ -> []
+      end
+
+    pq_available? = Enum.any?(algos, fn a -> to_string(a) == "mlkem768x25519-sha256" end)
+
+    if pq_available? do
+      Logger.info("ssh kex: mlkem768x25519-sha256 available (PQ) — #{inspect(algos)}")
+    else
+      Logger.warning(
+        "ssh kex: mlkem768x25519-sha256 NOT offered — clients will see PQ warning (SNDL risk). " <>
+          "Need OTP >=28.4 with OpenSSL >=3.5. Offered: #{inspect(algos)} " <>
+          "(see https://www.erlang.org/patches/OTP-28.4)"
+      )
     end
   end
 
