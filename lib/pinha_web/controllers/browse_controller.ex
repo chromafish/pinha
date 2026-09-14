@@ -19,17 +19,25 @@ defmodule PinhaWeb.BrowseController do
           fail(conn, 400, "invalid path")
 
         {:ok, path} ->
-          case Git.object_type(repo, target.id, path) do
-            {:ok, "tree"} -> render_tree(conn, repo, target, path)
-            {:ok, "blob"} -> render_blob(conn, repo, target, path)
-            _ -> fail(conn, 404, "no such path at this revision")
+          [change_id, contents] =
+            Parallel.all([
+              fn -> target.change_id || Git.change_id_of(repo, target.id) end,
+              fn -> path_contents(repo, target.id, path) end
+            ])
+
+          target = %{target | change_id: change_id}
+
+          case contents do
+            {:tree, entries, commits} -> render_tree(conn, repo, target, path, entries, commits)
+            {:blob, blob} -> render_blob(conn, repo, target, path, blob)
+            :error -> fail(conn, 404, "no such path at this revision")
           end
       end
     end)
   end
 
   def raw(conn, %{"repo" => name} = params) do
-    with_target(conn, name, params["rev"], [change_id: false], fn conn, repo, target ->
+    with_target(conn, name, params["rev"], fn conn, repo, target ->
       case browse_path(params) do
         :error ->
           fail(conn, 400, "invalid path")
@@ -50,8 +58,7 @@ defmodule PinhaWeb.BrowseController do
   end
 
   def commit(conn, %{"repo" => name, "id" => id}) do
-    # Git.commit/2 reads the change id itself.
-    with_target(conn, name, id, [change_id: false], fn conn, repo, target ->
+    with_target(conn, name, id, fn conn, repo, target ->
       [commit, stat, diff] =
         Parallel.all([
           fn -> Git.commit(repo, target.id) end,
@@ -75,13 +82,36 @@ defmodule PinhaWeb.BrowseController do
     end)
   end
 
-  defp render_tree(conn, repo, target, path) do
-    [{:ok, entries}, commits] =
-      Parallel.all([
-        fn -> Git.list_tree(repo, target.id, path) end,
-        fn -> Git.log(repo, target.id, limit: 10, path: path) end
-      ])
+  # A commit's root is always a tree, so the root skips the type check.
+  defp path_contents(repo, id, ""), do: tree_contents(repo, id, "")
 
+  defp path_contents(repo, id, path) do
+    case Git.object_type(repo, id, path) do
+      {:ok, "tree"} ->
+        tree_contents(repo, id, path)
+
+      {:ok, "blob"} ->
+        case Git.blob(repo, id, path) do
+          {:ok, blob} -> {:blob, blob}
+          {:error, :not_found} -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp tree_contents(repo, id, path) do
+    case Parallel.all([
+           fn -> Git.list_tree(repo, id, path) end,
+           fn -> Git.log(repo, id, limit: 10, path: path) end
+         ]) do
+      [{:ok, entries}, commits] -> {:tree, entries, commits}
+      [{:error, :not_found}, _commits] -> :error
+    end
+  end
+
+  defp render_tree(conn, repo, target, path, entries, commits) do
     render(conn, :tree,
       repo: repo,
       target: target,
@@ -92,9 +122,7 @@ defmodule PinhaWeb.BrowseController do
     )
   end
 
-  defp render_blob(conn, repo, target, path) do
-    {:ok, blob} = Git.blob(repo, target.id, path)
-
+  defp render_blob(conn, repo, target, path, blob) do
     render(conn, :blob,
       repo: repo,
       target: target,
@@ -110,11 +138,16 @@ defmodule PinhaWeb.BrowseController do
   defp blob_lines(%{content: content}), do: content |> Git.scrub() |> String.split("\n")
 
   # Resolves the repo and revision. Without one, an existing HEAD bookmark wins;
-  # a bookmarkless repository uses its newest reachable commit. `opts` go to
-  # Git.resolve/3.
-  defp with_target(conn, name, rev, opts \\ [], fun) do
+  # a bookmarkless repository uses its newest reachable commit.
+  #
+  # The target's change id is left nil unless the rev was a change id: the
+  # commit page reads it with the commit, and the tree page reads it alongside
+  # the path, so resolving never waits on it.
+  defp with_target(conn, name, rev, fun) do
     case Repos.fetch(name) do
       {:ok, repo} ->
+        opts = [change_id: false]
+
         case if(rev, do: Git.resolve(repo, rev, opts), else: default_target(repo, opts)) do
           nil ->
             fail(conn, 404, "repository has no revisions")

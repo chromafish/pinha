@@ -1,11 +1,13 @@
 defmodule Pinha.Git.ChangeIdCache do
   @moduledoc """
-  Native Jujutsu change IDs already read from commit objects on this node.
+  Jujutsu change IDs already read from commit objects on this node.
 
   A commit object never changes, so a change ID read from one stays correct
   and entries are never invalidated. Keys pair the repository directory with
-  the commit id. A nil value records a commit without a native header, so it
-  is not read again either.
+  the commit id. Native `change-id` headers and legacy `change-id` trailers
+  are kept apart, since log output carries trailers already and only the
+  header needs a separate read. A nil value records a commit read without
+  one, so it is not read again either.
 
   Reads and writes go straight to a public ETS table. When a write would take
   the table past `Pinha.Config.change_id_cache_max_entries/0`, the table is
@@ -39,19 +41,36 @@ defmodule Pinha.Git.ChangeIdCache do
     end
   end
 
-  @doc "Records what was read for each commit id: its change ID, or nil."
+  @doc "Records the native header read for each commit id: its change ID, or nil."
   @spec put(String.t(), %{String.t() => String.t() | nil}) :: :ok
   def put(dir, change_ids) do
-    if table?() and map_size(change_ids) > 0 do
-      if :ets.info(__MODULE__, :size) + map_size(change_ids) >
-           Config.change_id_cache_max_entries() do
+    insert(Enum.map(change_ids, fn {id, change_id} -> {{dir, id}, change_id} end))
+  end
+
+  @doc "The trailer change ID already read for one commit, nil included."
+  @spec lookup_trailer(String.t(), String.t()) :: {:ok, String.t() | nil} | :error
+  def lookup_trailer(dir, id) do
+    with true <- table?(),
+         [{_key, change_id}] <- :ets.lookup(__MODULE__, {dir, id, :trailer}) do
+      {:ok, change_id}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc "Records the trailer change ID read for one commit, or nil."
+  @spec put_trailer(String.t(), String.t(), String.t() | nil) :: :ok
+  def put_trailer(dir, id, change_id), do: insert([{{dir, id, :trailer}, change_id}])
+
+  defp insert([]), do: :ok
+
+  defp insert(entries) do
+    if table?() do
+      if :ets.info(__MODULE__, :size) + length(entries) > Config.change_id_cache_max_entries() do
         :ets.delete_all_objects(__MODULE__)
       end
 
-      :ets.insert(
-        __MODULE__,
-        Enum.map(change_ids, fn {id, change_id} -> {{dir, id}, change_id} end)
-      )
+      :ets.insert(__MODULE__, entries)
     end
 
     :ok

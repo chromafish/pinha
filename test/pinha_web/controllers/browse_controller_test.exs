@@ -89,6 +89,21 @@ defmodule PinhaWeb.BrowseControllerTest do
       assert html =~ "divergent"
     end
 
+    test "shows the change id of the revision being browsed", %{
+      conn: conn,
+      commits: [_second, first]
+    } do
+      html = conn |> get("/r/demo/tree/#{first.id}/README.md") |> html_response(200)
+      assert html =~ Git.short(@first_change)
+    end
+
+    test "404s at the root of a tag that names a blob", %{conn: conn, repo: repo} do
+      blob = repo.dir |> git!(["rev-parse", "main:README.md"]) |> String.trim()
+      git!(repo.dir, ["tag", "readme", blob])
+
+      assert conn |> get("/r/demo/tree/readme") |> html_response(404) =~ "no such path"
+    end
+
     test "404s for unknown revisions and paths", %{conn: conn} do
       assert conn |> get("/r/demo/tree/nope") |> html_response(404) =~ "no such revision"
       assert conn |> get("/r/demo/tree/main/nope") |> html_response(404) =~ "no such path"

@@ -426,15 +426,30 @@ defmodule Pinha.Git do
     end
   end
 
+  # Only a full object id names one commit for good; anything else could move,
+  # so it is read every time.
   defp trailer_change_id(dir, id) do
-    case run(dir, [
-           "show",
-           "--no-patch",
-           "--format=%(trailers:key=change-id,valueonly,separator=#{@cid})",
-           id
-         ]) do
-      {:ok, out} -> out |> trailer_ids() |> List.first()
-      {:error, _} -> nil
+    cacheable? = full_object_id?(id)
+
+    case cacheable? && ChangeIdCache.lookup_trailer(dir, id) do
+      {:ok, change_id} ->
+        change_id
+
+      _ ->
+        case run(dir, [
+               "show",
+               "--no-patch",
+               "--format=%(trailers:key=change-id,valueonly,separator=#{@cid})",
+               id
+             ]) do
+          {:ok, out} ->
+            change_id = out |> trailer_ids() |> List.first()
+            if cacheable?, do: ChangeIdCache.put_trailer(dir, id, change_id)
+            change_id
+
+          {:error, _} ->
+            nil
+        end
     end
   end
 

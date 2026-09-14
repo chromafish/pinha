@@ -16,6 +16,16 @@ defmodule Pinha.Git.ChangeIdCacheTest do
     assert ChangeIdCache.lookup(dir <> "-other", ["a"]) == {%{}, ["a"]}
   end
 
+  test "trailer change IDs are kept apart from native headers", %{dir: dir} do
+    assert ChangeIdCache.lookup_trailer(dir, "a") == :error
+
+    ChangeIdCache.put(dir, %{"a" => nil})
+    ChangeIdCache.put_trailer(dir, "a", "legacy")
+
+    assert ChangeIdCache.lookup(dir, ["a"]) == {%{"a" => nil}, []}
+    assert ChangeIdCache.lookup_trailer(dir, "a") == {:ok, "legacy"}
+  end
+
   test "a write past the entry limit empties the table first", %{dir: dir} do
     previous = Application.get_env(:pinha, :change_id_cache_max_entries)
     Application.put_env(:pinha, :change_id_cache_max_entries, ChangeIdCache.size() + 1)

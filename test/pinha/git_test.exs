@@ -271,6 +271,17 @@ defmodule Pinha.GitTest do
       assert Git.change_id_of(repo, String.duplicate("0", 40)) == nil
     end
 
+    test "change_id_of/2 remembers the trailer of a commit without a native header", %{
+      repo: repo,
+      commits: [head | _]
+    } do
+      assert Git.change_id_of(repo, head.id) == @second_change
+      assert ChangeIdCache.lookup_trailer(repo.dir, head.id) == {:ok, @second_change}
+
+      assert Git.change_id_of(repo, "main") == @second_change
+      assert ChangeIdCache.lookup_trailer(repo.dir, "main") == :error
+    end
+
     test "diff/2 and diff_stat/2 describe the change", %{repo: repo, commits: [head, root]} do
       diff = Git.diff(repo, head.id)
       assert diff =~ "--- a/README.md"
