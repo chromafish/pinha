@@ -121,6 +121,7 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "kmpsxwvr"
       assert html =~ "/r/demo.git"
       assert html =~ "ssh://git@"
+      assert length(Regex.scan(~r/<th>Subject<\/th>/, html)) == 1
     end
 
     test "shows history when tags, but no bookmarks, make commits reachable", %{conn: conn} do
