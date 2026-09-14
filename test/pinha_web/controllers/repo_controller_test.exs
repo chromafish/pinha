@@ -97,9 +97,14 @@ defmodule PinhaWeb.RepoControllerTest do
     test "shows the default bookmark, bookmarks, tags, and recent changes", %{conn: conn} do
       repo =
         seed_repo!("demo", [
-          %{message: "first commit", files: %{"a.txt" => "a\n"}},
+          %{
+            message: "first commit",
+            author_date: "2026-02-02T03:04:05+00:00",
+            files: %{"a.txt" => "a\n"}
+          },
           %{
             message: "second commit",
+            author_date: "2026-01-02T03:04:05+00:00",
             change_id: "kmpsxwvrlouvzysnkulnnnttrrytwstn",
             files: %{"b.txt" => "b\n"}
           }
@@ -121,7 +126,12 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "kmpsxwvr"
       assert html =~ "/r/demo.git"
       assert html =~ "ssh://git@"
-      assert length(Regex.scan(~r/<th>Subject<\/th>/, html)) == 1
+      assert html =~ "<th>Message</th>"
+      refute html =~ "<th>Subject</th>"
+
+      {first_index, _length} = :binary.match(html, "first commit")
+      {second_index, _length} = :binary.match(html, "second commit")
+      assert first_index < second_index
     end
 
     test "shows history when tags, but no bookmarks, make commits reachable", %{conn: conn} do

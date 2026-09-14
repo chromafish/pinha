@@ -46,7 +46,8 @@ defmodule Pinha.RepoCase do
   Creates a repository and pushes `commits` into it.
 
   Each commit is `%{message: ..., change_id: ..., files: %{path => content}}`,
-  applied in order on the default branch.
+  applied in order on the default branch. An optional `author_date` overrides
+  the fixed test date.
   """
   def seed_repo!(name, commits) do
     repo = create_repo!(name)
@@ -61,7 +62,14 @@ defmodule Pinha.RepoCase do
       end)
 
       git!(work, ["add", "-A"])
-      git!(work, ["commit", "--quiet", "--message", message(commit)])
+
+      date_args =
+        case Map.fetch(commit, :author_date) do
+          {:ok, author_date} -> ["--date", author_date]
+          :error -> []
+        end
+
+      git!(work, ["commit", "--quiet", "--message", message(commit)] ++ date_args)
     end)
 
     git!(work, ["push", "--quiet", "origin", "HEAD:refs/heads/main"])

@@ -67,6 +67,8 @@ defmodule PinhaWeb.RepoController do
             fn -> owner_and_users(repo, may_write) end
           ])
 
+        commits = Enum.sort_by(commits, &author_timestamp/1, :desc)
+
         render(conn, :show,
           repo: repo,
           owner: owner,
@@ -222,6 +224,13 @@ defmodule PinhaWeb.RepoController do
   defp presentation_kind(%{kind: :jj}, _history_kind), do: :jj
   defp presentation_kind(%{kind: :git}, :jj), do: :jj_via_git
   defp presentation_kind(%{kind: :git}, :git), do: :git
+
+  defp author_timestamp(%{author_date: author_date}) do
+    case DateTime.from_iso8601(author_date) do
+      {:ok, datetime, _offset} -> DateTime.to_unix(datetime, :microsecond)
+      {:error, _reason} -> 0
+    end
+  end
 
   defp fail(conn, status, message), do: PinhaWeb.Failure.send(conn, status, message)
 end
