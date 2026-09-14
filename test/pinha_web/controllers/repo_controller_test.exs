@@ -17,7 +17,8 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "main"
       assert html =~ ~s(href="/r/demo")
       assert html =~ ~s(data-repository-kind="git")
-      assert html =~ "Plain Git repository and history"
+      refute html =~ ">Type<"
+      refute html =~ "Plain Git repository and history"
     end
 
     test "says so when there are no repositories", %{conn: conn} do
@@ -39,7 +40,7 @@ defmodule PinhaWeb.RepoControllerTest do
       assert repo["history_model"] == "git"
     end
 
-    test "labels Jujutsu change history without hiding Git compatibility", %{conn: conn} do
+    test "lists Jujutsu history without a repository type column", %{conn: conn} do
       seed_repo!("jj-demo", [
         %{
           message: "a jj change",
@@ -50,8 +51,8 @@ defmodule PinhaWeb.RepoControllerTest do
 
       html = conn |> browser() |> get("/") |> html_response(200)
       assert html =~ ~s(data-repository-kind="jujutsu")
-      assert html =~ "Jujutsu via Git"
       assert html =~ "bookmark"
+      refute html =~ "Jujutsu via Git"
 
       assert %{"repos" => [%{"repository_model" => "git", "history_model" => "jujutsu"}]} =
                conn

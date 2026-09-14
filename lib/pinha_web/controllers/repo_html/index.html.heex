@@ -12,7 +12,6 @@
         <thead>
           <tr>
             <th>Name</th>
-            <th>Type</th>
             <th>Reference</th>
             <th>Change</th>
             <th>Commit</th>
@@ -28,9 +27,6 @@
             data-repository-kind={if(jj_history?(entry.repo_kind), do: "jujutsu", else: "git")}
           >
             <td><a class="path" href={repo_path(entry.repo.name)}>{entry.repo.name}</a></td>
-            <td>
-              <.repository_kind_badge kind={entry.repo_kind} model={entry.repo.kind} />
-            </td>
             <td>
               <span :if={entry.default_bookmark} class="reference-summary">
                 <span class={[
