@@ -179,24 +179,6 @@ body {
   color: var(--status-info-fg);
 }
 
-.reference-summary {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--sp-2);
-  white-space: nowrap;
-}
-
-.reference-kind {
-  color: var(--text-faint);
-  font: var(--type-label);
-  letter-spacing: var(--ls-label);
-  text-transform: uppercase;
-}
-
-.reference-kind-muted {
-  opacity: 0.72;
-}
-
 .bookmark-ref,
 .id-secondary {
   color: var(--text-muted);

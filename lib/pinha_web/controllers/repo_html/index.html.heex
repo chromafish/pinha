@@ -14,7 +14,7 @@
             <th>Name</th>
             <th>Reference</th>
             <th>Change</th>
-            <th>Commit</th>
+            <th>Latest commit</th>
             <th>Subject</th>
             <th>Updated</th>
             <th>Description</th>
@@ -28,19 +28,11 @@
           >
             <td><a class="path" href={repo_path(entry.repo.name)}>{entry.repo.name}</a></td>
             <td>
-              <span :if={entry.default_bookmark} class="reference-summary">
-                <span class={[
-                  "reference-kind",
-                  jj_history?(entry.repo_kind) && "reference-kind-muted"
-                ]}>
-                  {if(jj_history?(entry.repo_kind), do: "bookmark", else: "branch")}
-                </span>
-                <span class={[
-                  "ref",
-                  jj_history?(entry.repo_kind) && "bookmark-ref"
-                ]}>
-                  {entry.default_bookmark}
-                </span>
+              <span
+                :if={entry.default_bookmark}
+                class={["ref", jj_history?(entry.repo_kind) && "bookmark-ref"]}
+              >
+                {entry.default_bookmark}
               </span>
               <span :if={is_nil(entry.default_bookmark)} class="muted">—</span>
             </td>

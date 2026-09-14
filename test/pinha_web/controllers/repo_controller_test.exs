@@ -13,10 +13,12 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "demo"
       assert html =~ "the demo repo"
       assert html =~ "first commit"
-      assert html =~ "branch"
       assert html =~ "main"
+      assert html =~ "Latest commit"
       assert html =~ ~s(href="/r/demo")
       assert html =~ ~s(data-repository-kind="git")
+      refute html =~ "reference-kind"
+      refute html =~ ">Commit</th>"
       refute html =~ ">Type<"
       refute html =~ "Plain Git repository and history"
     end
@@ -51,7 +53,8 @@ defmodule PinhaWeb.RepoControllerTest do
 
       html = conn |> browser() |> get("/") |> html_response(200)
       assert html =~ ~s(data-repository-kind="jujutsu")
-      assert html =~ "bookmark"
+      assert html =~ "bookmark-ref"
+      refute html =~ "reference-kind"
       refute html =~ "Jujutsu via Git"
 
       assert %{"repos" => [%{"repository_model" => "git", "history_model" => "jujutsu"}]} =
