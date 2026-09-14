@@ -79,7 +79,7 @@ architecture it was built on and no other.
 
 ## Deploying
 
-See `server/README.md
+See `server/README.md`
 
 ## Repositories
 

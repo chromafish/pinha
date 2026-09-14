@@ -219,8 +219,6 @@ body {
 
 .tree-explorer {
   display: block;
-  max-height: 128px;
-  overflow: auto;
   background: var(--surface-page);
 }
 
