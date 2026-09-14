@@ -1,6 +1,8 @@
 defmodule PinhaWeb.RepoControllerTest do
   use PinhaWeb.ConnCase, async: false
 
+  alias Pinha.Git
+
   defp browser(conn), do: put_req_header(conn, "accept", "text/html,application/xhtml+xml")
 
   describe "GET /" do
@@ -94,33 +96,38 @@ defmodule PinhaWeb.RepoControllerTest do
   end
 
   describe "GET /:repo" do
-    test "shows the default bookmark, bookmarks, tags, and recent changes", %{conn: conn} do
+    test "shows the latest commit tree and recent changes for Jujutsu history", %{conn: conn} do
       repo =
         seed_repo!("demo", [
           %{
             message: "first commit",
             author_date: "2026-02-02T03:04:05+00:00",
-            files: %{"a.txt" => "a\n"}
+            files: %{"README.md" => "# Latest by date\n", "a.txt" => "a\n"}
           },
           %{
             message: "second commit",
             author_date: "2026-01-02T03:04:05+00:00",
             change_id: "kmpsxwvrlouvzysnkulnnnttrrytwstn",
-            files: %{"b.txt" => "b\n"}
+            files: %{"README.md" => "# Head by topology\n", "b.txt" => "b\n"}
           }
         ])
 
       git!(repo.dir, ["tag", "v1", "main"])
+      latest = repo |> Git.log_all(limit: 20) |> Enum.find(&(&1.subject == "first commit"))
 
       html = conn |> get("/r/demo") |> html_response(200)
       assert html =~ ~s(data-repository-kind="jujutsu")
       assert html =~ "Jujutsu via Git"
-      assert html =~ "Bookmarks &amp; tags"
-      assert html =~ "Recent changes"
-      assert html =~ "bookmark-ref"
+      assert html =~ "Latest commit"
+      assert html =~ ~s(aria-label="Files at Latest commit #{Git.short(latest.id)}")
+      assert html =~ ~s(href="/r/demo/tree/#{latest.id}/a.txt")
+      refute html =~ ~s(href="/r/demo/tree/#{latest.id}/b.txt")
+      assert html =~ "Latest by date"
+      refute html =~ "Head by topology"
+      assert html =~ "Bookmark"
       assert html =~ "git HEAD"
-      assert html =~ "main"
-      assert html =~ "v1"
+      assert html =~ ">v1<"
+      assert html =~ "Recent changes"
       assert html =~ "second commit"
       assert html =~ "first commit"
       assert html =~ "kmpsxwvr"
@@ -148,33 +155,39 @@ defmodule PinhaWeb.RepoControllerTest do
         |> get("/r/demo")
         |> html_response(200)
 
+      assert html =~ "No default branch to browse"
       assert html =~ "No branches"
       assert html =~ "snapshot"
       assert html =~ "tagged change"
       refute html =~ "No commits have been pushed"
     end
 
-    test "lays out refs above the README and recent history", %{conn: conn} do
+    test "lays out the file tree above the README and recent history", %{conn: conn} do
       seed_repo!("demo", [
         %{
           message: "document the project",
-          files: %{"README.md" => "# Demo\n\nA useful project.\n"}
+          files: %{
+            "README.md" => "# Demo\n\nA useful project.\n",
+            "lib/demo.ex" => "defmodule Demo do\nend\n"
+          }
         }
       ])
 
       html = conn |> get("/r/demo") |> html_response(200)
 
+      assert html =~ ~s(id="repository-tree")
+      assert html =~ ~s(id="repository-files")
       assert html =~ ~s(id="repository-refs")
-      assert html =~ ~s(class="ref-lanes")
+      assert html =~ "lib/"
       assert html =~ ~s(id="repository-readme")
       assert html =~ ~s(id="repository-history")
       assert html =~ "Demo</h1>"
 
-      {refs_index, _length} = :binary.match(html, ~s(id="repository-refs"))
+      {tree_index, _length} = :binary.match(html, ~s(id="repository-tree"))
       {readme_index, _length} = :binary.match(html, ~s(id="repository-readme"))
       {history_index, _length} = :binary.match(html, ~s(id="repository-history"))
 
-      assert refs_index < readme_index
+      assert tree_index < readme_index
       assert readme_index < history_index
     end
 
@@ -185,11 +198,10 @@ defmodule PinhaWeb.RepoControllerTest do
 
       assert html =~ ~s(data-repository-kind="git")
       assert html =~ "Plain Git repository and history"
-      assert html =~ "Branches &amp; tags"
+      assert html =~ "Branch"
+      refute html =~ "Default branch"
+      assert html =~ ~s(href="/r/plain/tree/main/a.txt")
       assert html =~ "Recent commits"
-      assert html =~ ">Branch<"
-      assert html =~ "default"
-      refute html =~ "bookmark-ref"
     end
 
     test "uses the persisted Jujutsu model even before it has changes", %{conn: conn} do
@@ -201,7 +213,7 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ ~s(data-repository-kind="jujutsu")
       assert html =~ ~s(data-repository-model="jj")
       assert html =~ "Native Jujutsu repository with Git-compatible transport"
-      assert html =~ "No bookmarks"
+      assert html =~ "No published commit to browse"
       assert html =~ "No changes have been published"
     end
 

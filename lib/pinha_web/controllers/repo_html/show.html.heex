@@ -4,84 +4,121 @@
   </:badge>
 
   <main class="repo-overview">
-    <section id="repository-refs" class="repo-refs">
-      <header class="pane-head">
-        <span>
-          {if(jj_history?(@repo_kind), do: "Bookmarks & tags", else: "Branches & tags")}
-        </span>
-        <span class="count">{length(@bookmarks) + length(@tags)}</span>
-      </header>
+    <div class="repo-top">
+      <p :if={@repo.description} class="repo-description">{@repo.description}</p>
 
-      <p :if={@repo.description} class="lede">{@repo.description}</p>
-
-      <div class="ref-lanes">
-        <section class="ref-lane">
-          <header class="ref-lane-head">
-            <span>{if(jj_history?(@repo_kind), do: "Bookmark", else: "Branch")}</span>
-            <span class="count">{length(@bookmarks)}</span>
-          </header>
-
-          <ul :if={@bookmarks != []} class="ref-list">
-            <li :for={bookmark <- @bookmarks} class="ref-item">
+      <div class="repo-tools">
+        <section id="repository-tree" class="repo-tree">
+          <header class="pane-head">
+            <span>Files</span>
+            <span :if={@tree_target} class="tree-target">
+              <span class="tree-target-label">{@tree_target.label}</span>
               <a
-                class={["ref", jj_history?(@repo_kind) && "bookmark-ref"]}
-                href={tree_path(@repo.name, bookmark.name)}
+                :if={@repo_kind == :git}
+                class="ref"
+                href={tree_path(@repo.name, @tree_target.name)}
               >
-                {bookmark.name}
+                {@tree_target.name}
               </a>
-              <span
-                :if={bookmark.name == @default_bookmark}
-                class={["tag", jj_history?(@repo_kind) && "tag-muted"]}
-              >
-                {if(jj_history?(@repo_kind), do: "git HEAD", else: "default")}
+              <a class="id" href={commit_path(@repo.name, @tree_target.id)}>
+                {short(@tree_target.id)}
+              </a>
+              <span :if={Map.get(@tree_target, :change_id)} class="tree-target-change">
+                <span class="tree-target-key">change</span>
+                <span class="change-id">{short(@tree_target.change_id)}</span>
               </span>
-              <a
-                class={["id", jj_history?(@repo_kind) && "id-secondary"]}
-                href={commit_path(@repo.name, bookmark.id)}
-              >
-                {short(bookmark.id)}
-              </a>
-              <time class="ref-date" datetime={bookmark.date}>{format_date(bookmark.date)}</time>
-            </li>
-          </ul>
-
-          <p :if={@bookmarks == []} class="ref-empty">
-            <%= if jj_history?(@repo_kind) do %>
-              No bookmarks.
-            <% else %>
-              No branches. Push one: <code>git push origin main</code>.
-            <% end %>
-          </p>
-        </section>
-
-        <section class="ref-lane">
-          <header class="ref-lane-head">
-            <span>Tag</span>
-            <span class="count">{length(@tags)}</span>
+            </span>
+            <span class="count">{length(@tree_entries)}</span>
           </header>
 
-          <ul :if={@tags != []} class="ref-list">
-            <li :for={tag <- @tags} class="ref-item">
-              <a class="ref" href={tree_path(@repo.name, tag.name)}>{tag.name}</a>
-              <a
-                class={["id", jj_history?(@repo_kind) && "id-secondary"]}
-                href={commit_path(@repo.name, tag.id)}
-              >
-                {short(tag.id)}
-              </a>
-            </li>
-          </ul>
+          <nav
+            :if={@tree_target && @tree_entries != []}
+            id="repository-files"
+            class="tree-explorer"
+            aria-label={"Files at #{@tree_target.label} #{short(@tree_target.id)}"}
+          >
+            <a
+              :for={entry <- @tree_entries}
+              class="tree-entry"
+              href={tree_path(@repo.name, @tree_target.name, entry.path)}
+            >
+              <span class="path">
+                {if entry.type == "tree", do: entry.name <> "/", else: entry.name}
+              </span>
+              <span class="tree-entry-size">{format_bytes(entry.size)}</span>
+            </a>
+          </nav>
 
-          <p :if={@tags == []} class="ref-empty">
-            <%= if jj_history?(@repo_kind) do %>
-              No tags.
-            <% else %>
-              No tags. Push one: <code>git push origin v1</code>.
+          <p :if={@tree_entries == []} class="tree-empty">
+            <%= cond do %>
+              <% @tree_target -> %>
+                This revision has no files.
+              <% jj_history?(@repo_kind) -> %>
+                No published commit to browse.
+              <% true -> %>
+                No default branch to browse.
             <% end %>
           </p>
         </section>
+
+        <aside id="repository-refs" class="repo-refs">
+          <section class="ref-lane">
+            <header class="ref-lane-head">
+              <span>{if(jj_history?(@repo_kind), do: "Bookmark", else: "Branch")}</span>
+              <span class="count">{length(@bookmarks)}</span>
+            </header>
+
+            <ul :if={@bookmarks != []} class="ref-list">
+              <li :for={bookmark <- @bookmarks} class="ref-item">
+                <a
+                  class={["ref", jj_history?(@repo_kind) && "bookmark-ref"]}
+                  href={tree_path(@repo.name, bookmark.name)}
+                >
+                  {bookmark.name}
+                </a>
+                <span
+                  :if={bookmark.name == @default_bookmark}
+                  class={["tag", jj_history?(@repo_kind) && "tag-muted"]}
+                >
+                  {if(jj_history?(@repo_kind), do: "git HEAD", else: "default")}
+                </span>
+                <a
+                  class={["id", jj_history?(@repo_kind) && "id-secondary"]}
+                  href={commit_path(@repo.name, bookmark.id)}
+                >
+                  {short(bookmark.id)}
+                </a>
+              </li>
+            </ul>
+
+            <p :if={@bookmarks == []} class="ref-empty">
+              {if(jj_history?(@repo_kind), do: "No bookmarks.", else: "No branches.")}
+            </p>
+          </section>
+
+          <section class="ref-lane">
+            <header class="ref-lane-head">
+              <span>Tag</span>
+              <span class="count">{length(@tags)}</span>
+            </header>
+
+            <ul :if={@tags != []} class="ref-list">
+              <li :for={tag <- @tags} class="ref-item">
+                <a class="ref" href={tree_path(@repo.name, tag.name)}>{tag.name}</a>
+                <a
+                  class={["id", jj_history?(@repo_kind) && "id-secondary"]}
+                  href={commit_path(@repo.name, tag.id)}
+                >
+                  {short(tag.id)}
+                </a>
+              </li>
+            </ul>
+
+            <p :if={@tags == []} class="ref-empty">No tags.</p>
+          </section>
+        </aside>
       </div>
-    </section>
+    </div>
 
     <div class="repo-main">
       <section :if={assigns[:readme]} id="repository-readme" class="pane readme-pane">

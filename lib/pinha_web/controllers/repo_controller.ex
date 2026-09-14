@@ -68,8 +68,14 @@ defmodule PinhaWeb.RepoController do
           ])
 
         commits = Enum.sort_by(commits, &author_timestamp/1, :desc)
+        repo_kind = presentation_kind(repo, Git.history_kind(commits))
+        tree_target = overview_target(repo_kind, refs, commits)
 
-        readme = fetch_readme(repo, refs, commits)
+        [tree_entries, readme] =
+          Parallel.all([
+            fn -> fetch_tree(repo, tree_target) end,
+            fn -> fetch_readme(repo, tree_target) end
+          ])
 
         render(conn, :show,
           repo: repo,
@@ -80,7 +86,9 @@ defmodule PinhaWeb.RepoController do
           bookmarks: refs.bookmarks,
           tags: refs.tags,
           commits: commits,
-          repo_kind: presentation_kind(repo, Git.history_kind(commits)),
+          repo_kind: repo_kind,
+          tree_target: tree_target,
+          tree_entries: tree_entries,
           readme: readme
         )
 
@@ -228,27 +236,43 @@ defmodule PinhaWeb.RepoController do
   defp presentation_kind(%{kind: :git}, :jj), do: :jj_via_git
   defp presentation_kind(%{kind: :git}, :git), do: :git
 
-  defp fetch_readme(repo, refs, commits) do
-    rev =
-      case refs.default_bookmark do
-        %{name: name} ->
-          name
+  defp overview_target(:git, %{default_bookmark: nil}, _commits), do: nil
 
-        nil ->
-          case commits do
-            [%{id: id} | _] -> id
-            [] -> nil
-          end
-      end
+  defp overview_target(:git, %{default_bookmark: bookmark}, _commits) do
+    %{id: bookmark.id, name: bookmark.name, label: "Branch"}
+  end
 
-    case rev && Git.readme(repo, rev, "") do
+  defp overview_target(_repo_kind, _refs, []), do: nil
+
+  defp overview_target(_repo_kind, _refs, [commit | _commits]) do
+    %{
+      id: commit.id,
+      name: commit.id,
+      label: "Latest commit",
+      change_id: commit.change_id
+    }
+  end
+
+  defp fetch_tree(_repo, nil), do: []
+
+  defp fetch_tree(repo, target) do
+    case Git.list_tree(repo, target.id, "") do
+      {:ok, entries} -> entries
+      {:error, :not_found} -> []
+    end
+  end
+
+  defp fetch_readme(_repo, nil), do: nil
+
+  defp fetch_readme(repo, target) do
+    case Git.readme(repo, target.id, "") do
       {:ok, %{content: content, kind: kind, filename: filename}} ->
-        html = PinhaWeb.Markdown.to_html(content, kind, repo.name, rev, "")
+        html = PinhaWeb.Markdown.to_html(content, kind, repo.name, target.name, "")
 
         %{
           filename: filename,
           kind: kind,
-          rev: rev,
+          rev: target.name,
           html: html
         }
 

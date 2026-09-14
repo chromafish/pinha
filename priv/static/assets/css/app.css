@@ -96,8 +96,8 @@ body {
 .pane.bare { padding-top: var(--sp-5); }  /* no header line to hold the top edge */
 .pane + .pane { border-left: 1px solid var(--border-subtle); }
 
-/* The repository overview keeps refs compact and scannable across the top,
-   leaving the reading surface and recent history beside each other below. */
+/* The repository overview shows the exact revision being read, exposes its
+   root tree, then leaves the reading surface and history beside each other. */
 .repo-overview {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -105,21 +105,113 @@ body {
   min-height: 0;
 }
 
-.repo-refs {
+.repo-top {
   min-width: 0;
   border-bottom: 1px solid var(--border-default);
 }
 
-.repo-refs .lede {
-  max-width: none;
+.repo-description {
   margin: 0;
+  padding: var(--sp-5) var(--edge);
   border-bottom: 1px solid var(--border-subtle);
+  font: var(--type-body);
+  color: var(--text-body);
 }
 
-.ref-lanes {
+.repo-tools {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 3fr) minmax(440px, 2fr);
   min-width: 0;
+}
+
+.repo-tree,
+.repo-refs { min-width: 0; }
+
+.repo-refs {
+  display: grid;
+  align-content: start;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.tree-target {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+  height: 22px;
+  padding: 0 var(--sp-4);
+  background: var(--status-info-bg);
+  border: 1px solid var(--status-info-line);
+  color: var(--status-info-fg);
+  letter-spacing: var(--ls-normal);
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tree-target-label,
+.tree-target-key {
+  flex: none;
+  font: var(--type-label);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+}
+
+.tree-target .ref,
+.tree-target .id,
+.tree-target .change-id {
+  min-width: 0;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-target-change {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.tree-explorer {
+  display: block;
+  max-height: 128px;
+  overflow: auto;
+  background: var(--surface-page);
+}
+
+.tree-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-width: 0;
+  height: var(--row-h);
+  padding: 0 var(--edge);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-strong);
+  white-space: nowrap;
+  transition: background var(--dur-instant) var(--ease-mech);
+}
+
+.tree-entry:hover { background: var(--surface-hover); color: var(--text-link-hover); }
+
+.tree-entry .path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-entry-size {
+  flex: none;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+
+.tree-empty {
+  margin: 0;
+  padding: var(--sp-5) var(--edge);
+  font: var(--type-body);
+  color: var(--text-muted);
 }
 
 .ref-lane {
@@ -128,7 +220,7 @@ body {
   min-width: 0;
 }
 
-.ref-lane + .ref-lane { border-left: 1px solid var(--border-subtle); }
+.ref-lane + .ref-lane { border-top: 1px solid var(--border-subtle); }
 
 .ref-lane-head {
   display: flex;
@@ -166,11 +258,6 @@ body {
 
 .ref-item + .ref-item { border-left: 1px solid var(--border-subtle); }
 .ref-item .tag { margin-left: 0; }
-
-.ref-date {
-  font: var(--type-meta);
-  color: var(--text-faint);
-}
 
 .ref-empty {
   min-width: max-content;
@@ -304,9 +391,9 @@ body {
 
 .readme {
   width: 100%;
-  max-width: calc(var(--measure) + var(--sp-12));
+  max-width: none;
   margin: 0 auto;
-  padding: var(--sp-9) clamp(var(--sp-6), 4vw, var(--sp-11)) var(--sp-12);
+  padding: var(--sp-8) clamp(var(--sp-6), 2vw, var(--sp-8)) var(--sp-12);
   font: var(--type-editorial);
   color: var(--text-body);
   overflow-wrap: anywhere;
@@ -747,6 +834,8 @@ ul { list-style: none; margin: 0; padding: 0; }
   .pane + .pane { border-left: 0; border-top: 1px solid var(--border-default); }
 
   .repo-overview { height: auto; min-height: 100%; }
+  .repo-tools { grid-template-columns: minmax(0, 1fr); }
+  .repo-refs { border-top: 1px solid var(--border-subtle); border-left: 0; }
   .repo-main { display: block; }
   .repo-main .pane { overflow: visible; }
 }
@@ -755,8 +844,7 @@ ul { list-style: none; margin: 0; padding: 0; }
    action off-screen. The table structure remains in the document for assistive
    technology, while every value gains a visible label in the compact layout. */
 @media (max-width: 640px) {
-  .ref-lanes { grid-template-columns: minmax(0, 1fr); }
-  .ref-lane + .ref-lane { border-left: 0; border-top: 1px solid var(--border-subtle); }
+  .tree-target-change { display: none; }
 
   .settings-table thead {
     position: absolute;
