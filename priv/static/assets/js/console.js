@@ -34,6 +34,21 @@
     return target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
   }
 
+  Array.prototype.slice
+    .call(document.querySelectorAll("[data-expandable-panel]"))
+    .forEach(function (panel) {
+      var button = panel.querySelector("[data-expand-toggle]");
+      var label = panel.querySelector("[data-expand-label]");
+      if (!button || !label) return;
+
+      button.addEventListener("click", function () {
+        var expanded = button.getAttribute("aria-expanded") === "true";
+        panel.classList.toggle("is-expanded", !expanded);
+        button.setAttribute("aria-expanded", String(!expanded));
+        label.textContent = expanded ? "Show all" : "Collapse";
+      });
+    });
+
   document.addEventListener("keydown", function (event) {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 

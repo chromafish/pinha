@@ -4,72 +4,151 @@
   </:badge>
 
   <main class="repo-overview">
-    <div class="repo-top">
-      <p :if={@repo.description} class="repo-description">{@repo.description}</p>
+    <p :if={@repo.description} class="repo-description">{@repo.description}</p>
 
-      <div class="repo-tools">
-        <section id="repository-tree" class="repo-tree">
+    <section id="repository-presentation" class="repo-presentation" data-expandable-panel>
+      <div id="repository-presentation-content" class="repo-main">
+        <section :if={assigns[:readme]} id="repository-readme" class="pane readme-pane">
           <header class="pane-head">
-            <span>Files</span>
-            <span :if={@tree_target} class="tree-target">
-              <span class="tree-target-label">{@tree_target.label}</span>
-              <a
-                :if={@repo_kind == :git}
-                class="ref"
-                href={tree_path(@repo.name, @tree_target.name)}
-              >
-                {@tree_target.name}
-              </a>
-              <a class="id" href={commit_path(@repo.name, @tree_target.id)}>
-                {short(@tree_target.id)}
-              </a>
-              <span :if={Map.get(@tree_target, :change_id)} class="tree-target-change">
-                <span class="tree-target-key">change</span>
-                <span class="change-id">{short(@tree_target.change_id)}</span>
-              </span>
-            </span>
-            <span class="count">{length(@tree_entries)}</span>
+            <span>README</span>
+            <span class="count">{@readme.filename}</span>
           </header>
-
-          <nav
-            :if={@tree_target && @tree_entries != []}
-            id="repository-files"
-            class="tree-explorer"
-            aria-label={"Files at #{@tree_target.label} #{short(@tree_target.id)}"}
-          >
-            <a
-              :for={entry <- @tree_entries}
-              class="tree-entry"
-              href={tree_path(@repo.name, @tree_target.name, entry.path)}
-            >
-              <span class="path">
-                {if entry.type == "tree", do: entry.name <> "/", else: entry.name}
-              </span>
-              <span class="tree-entry-size">{format_bytes(entry.size)}</span>
-            </a>
-          </nav>
-
-          <p :if={@tree_entries == []} class="tree-empty">
-            <%= cond do %>
-              <% @tree_target -> %>
-                This revision has no files.
-              <% jj_history?(@repo_kind) -> %>
-                No published commit to browse.
-              <% true -> %>
-                No default branch to browse.
-            <% end %>
-          </p>
+          <div class="readme">
+            {@readme.html}
+          </div>
         </section>
 
-        <aside id="repository-refs" class="repo-refs">
-          <section class="ref-lane">
-            <header class="ref-lane-head">
-              <span>{if(jj_history?(@repo_kind), do: "Bookmark", else: "Branch")}</span>
-              <span class="count">{length(@bookmarks)}</span>
-            </header>
+        <section id="repository-history" class="pane history-pane">
+          <header class="pane-head">
+            <span>
+              {if(jj_history?(@repo_kind), do: "Recent changes", else: "Recent commits")}
+            </span>
+            <span class="count">{length(@commits)}</span>
+          </header>
 
-            <ul :if={@bookmarks != []} class="ref-list">
-              <li :for={bookmark <- @bookmarks} class="ref-item">
+          <p :if={@commits == []} class="empty">
+            {if(jj_history?(@repo_kind),
+              do: "No changes have been published.",
+              else: "No commits have been pushed."
+            )}
+          </p>
+
+          <table :if={@commits != []} class="table">
+            <thead>
+              <tr>
+                <th :if={jj_history?(@repo_kind)}>Change</th>
+                <th>Commit</th>
+                <th>Message</th>
+                <th>Author</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={commit <- @commits} data-row>
+                <td :if={jj_history?(@repo_kind)} class="change-id">{short(commit.change_id)}</td>
+                <td>
+                  <a
+                    class={["id", jj_history?(@repo_kind) && "id-secondary"]}
+                    href={commit_path(@repo.name, commit.id)}
+                  >
+                    {short(commit.id)}
+                  </a>
+                </td>
+                <td class="prose wide">{commit.subject}</td>
+                <td class="prose">{commit.author_name}</td>
+                <td class="right">{format_date(commit.author_date)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <footer class="repo-presentation-actions">
+        <button
+          type="button"
+          class="repo-presentation-toggle"
+          aria-expanded="false"
+          aria-controls="repository-presentation-content"
+          data-expand-toggle
+        >
+          <span data-expand-label>Show all</span>
+        </button>
+      </footer>
+    </section>
+
+    <div class="repo-tools">
+      <section id="repository-tree" class="pane repo-tree">
+        <header class="pane-head">
+          <span>Files</span>
+          <span :if={@tree_target} class="tree-target">
+            <span class="tree-target-label">{@tree_target.label}</span>
+            <a
+              :if={@repo_kind == :git}
+              class="ref"
+              href={tree_path(@repo.name, @tree_target.name)}
+            >
+              {@tree_target.name}
+            </a>
+            <a class="id" href={commit_path(@repo.name, @tree_target.id)}>
+              {short(@tree_target.id)}
+            </a>
+            <span :if={Map.get(@tree_target, :change_id)} class="tree-target-change">
+              <span class="tree-target-key">change</span>
+              <span class="change-id">{short(@tree_target.change_id)}</span>
+            </span>
+          </span>
+          <span class="count">{length(@tree_entries)}</span>
+        </header>
+
+        <nav
+          :if={@tree_target && @tree_entries != []}
+          id="repository-files"
+          class="tree-explorer"
+          aria-label={"Files at #{@tree_target.label} #{short(@tree_target.id)}"}
+        >
+          <a
+            :for={entry <- @tree_entries}
+            class="tree-entry"
+            href={tree_path(@repo.name, @tree_target.name, entry.path)}
+          >
+            <span class="path">
+              {if entry.type == "tree", do: entry.name <> "/", else: entry.name}
+            </span>
+            <span class="tree-entry-size">{format_bytes(entry.size)}</span>
+          </a>
+        </nav>
+
+        <p :if={@tree_entries == []} class="tree-empty">
+          <%= cond do %>
+            <% @tree_target -> %>
+              This revision has no files.
+            <% jj_history?(@repo_kind) -> %>
+              No published commit to browse.
+            <% true -> %>
+              No default branch to browse.
+          <% end %>
+        </p>
+      </section>
+
+      <section id="repository-refs" class="pane repo-refs">
+        <header class="pane-head">
+          <span>
+            {if(jj_history?(@repo_kind), do: "Bookmarks & tags", else: "Branches & tags")}
+          </span>
+          <span class="count">{length(@bookmarks) + length(@tags)}</span>
+        </header>
+
+        <table :if={@bookmarks != []} class="table">
+          <thead>
+            <tr>
+              <th>{if(jj_history?(@repo_kind), do: "Bookmark", else: "Branch")}</th>
+              <th>Commit</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={bookmark <- @bookmarks} data-row>
+              <td>
                 <a
                   class={["ref", jj_history?(@repo_kind) && "bookmark-ref"]}
                   href={tree_path(@repo.name, bookmark.name)}
@@ -82,95 +161,57 @@
                 >
                   {if(jj_history?(@repo_kind), do: "git HEAD", else: "default")}
                 </span>
+              </td>
+              <td>
                 <a
                   class={["id", jj_history?(@repo_kind) && "id-secondary"]}
                   href={commit_path(@repo.name, bookmark.id)}
                 >
                   {short(bookmark.id)}
                 </a>
-              </li>
-            </ul>
+              </td>
+              <td class="right">{format_date(bookmark.date)}</td>
+            </tr>
+          </tbody>
+        </table>
 
-            <p :if={@bookmarks == []} class="ref-empty">
-              {if(jj_history?(@repo_kind), do: "No bookmarks.", else: "No branches.")}
-            </p>
-          </section>
+        <p :if={@bookmarks == []} class="empty">
+          <%= if jj_history?(@repo_kind) do %>
+            No bookmarks.
+          <% else %>
+            No branches. Push one: <code>git push origin main</code>.
+          <% end %>
+        </p>
 
-          <section class="ref-lane">
-            <header class="ref-lane-head">
-              <span>Tag</span>
-              <span class="count">{length(@tags)}</span>
-            </header>
-
-            <ul :if={@tags != []} class="ref-list">
-              <li :for={tag <- @tags} class="ref-item">
-                <a class="ref" href={tree_path(@repo.name, tag.name)}>{tag.name}</a>
+        <table :if={@tags != []} class="table">
+          <thead>
+            <tr>
+              <th>Tag</th>
+              <th>Commit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={tag <- @tags} data-row>
+              <td><a class="ref" href={tree_path(@repo.name, tag.name)}>{tag.name}</a></td>
+              <td>
                 <a
                   class={["id", jj_history?(@repo_kind) && "id-secondary"]}
                   href={commit_path(@repo.name, tag.id)}
                 >
                   {short(tag.id)}
                 </a>
-              </li>
-            </ul>
-
-            <p :if={@tags == []} class="ref-empty">No tags.</p>
-          </section>
-        </aside>
-      </div>
-    </div>
-
-    <div class="repo-main">
-      <section :if={assigns[:readme]} id="repository-readme" class="pane readme-pane">
-        <header class="pane-head">
-          <span>README</span>
-          <span class="count">{@readme.filename}</span>
-        </header>
-        <div class="readme">
-          {@readme.html}
-        </div>
-      </section>
-
-      <section id="repository-history" class="pane history-pane">
-        <header class="pane-head">
-          <span>{if(jj_history?(@repo_kind), do: "Recent changes", else: "Recent commits")}</span>
-          <span class="count">{length(@commits)}</span>
-        </header>
-
-        <p :if={@commits == []} class="empty">
-          {if(jj_history?(@repo_kind),
-            do: "No changes have been published.",
-            else: "No commits have been pushed."
-          )}
-        </p>
-
-        <table :if={@commits != []} class="table">
-          <thead>
-            <tr>
-              <th :if={jj_history?(@repo_kind)}>Change</th>
-              <th>Commit</th>
-              <th>Message</th>
-              <th>Author</th>
-              <th>Date</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={commit <- @commits} data-row>
-              <td :if={jj_history?(@repo_kind)} class="change-id">{short(commit.change_id)}</td>
-              <td>
-                <a
-                  class={["id", jj_history?(@repo_kind) && "id-secondary"]}
-                  href={commit_path(@repo.name, commit.id)}
-                >
-                  {short(commit.id)}
-                </a>
               </td>
-              <td class="prose wide">{commit.subject}</td>
-              <td class="prose">{commit.author_name}</td>
-              <td class="right">{format_date(commit.author_date)}</td>
             </tr>
           </tbody>
         </table>
+
+        <p :if={@tags == []} class="empty">
+          <%= if jj_history?(@repo_kind) do %>
+            No tags.
+          <% else %>
+            No tags. Push one: <code>git push origin v1</code>.
+          <% end %>
+        </p>
       </section>
     </div>
   </main>

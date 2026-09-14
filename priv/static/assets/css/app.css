@@ -96,18 +96,11 @@ body {
 .pane.bare { padding-top: var(--sp-5); }  /* no header line to hold the top edge */
 .pane + .pane { border-left: 1px solid var(--border-subtle); }
 
-/* The repository overview shows the exact revision being read, exposes its
-   root tree, then leaves the reading surface and history beside each other. */
+/* The repository overview leads with the reading surface and history. The
+   operational repository data follows below, rather than competing with the
+   presentation for the first viewport. */
 .repo-overview {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
-}
-
-.repo-top {
-  min-width: 0;
-  border-bottom: 1px solid var(--border-default);
+  min-height: 100%;
 }
 
 .repo-description {
@@ -118,6 +111,58 @@ body {
   color: var(--text-body);
 }
 
+.repo-presentation {
+  min-width: 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.repo-main {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(440px, 2fr);
+  max-height: clamp(280px, calc(50vh - 40px), 440px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.repo-main > .pane {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.repo-main > .pane:only-child { grid-column: 1 / -1; }
+
+.repo-presentation:not(.is-expanded) .repo-main::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--sp-9);
+  background: linear-gradient(to bottom, transparent, var(--surface-page));
+  pointer-events: none;
+  content: "";
+}
+
+.repo-presentation.is-expanded .repo-main {
+  max-height: none;
+  overflow: visible;
+}
+
+.repo-presentation.is-expanded .repo-main > .pane { overflow: visible; }
+
+.repo-presentation-actions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.repo-presentation-toggle { min-width: 104px; }
+
 .repo-tools {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(440px, 2fr);
@@ -125,13 +170,12 @@ body {
 }
 
 .repo-tree,
-.repo-refs { min-width: 0; }
-
 .repo-refs {
-  display: grid;
-  align-content: start;
-  border-left: 1px solid var(--border-subtle);
+  min-width: 0;
+  overflow: visible;
 }
+
+.region .pane.repo-tree > * + * { margin-top: 0; }
 
 .tree-target {
   display: flex;
@@ -213,67 +257,6 @@ body {
   font: var(--type-body);
   color: var(--text-muted);
 }
-
-.ref-lane {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  min-width: 0;
-}
-
-.ref-lane + .ref-lane { border-top: 1px solid var(--border-subtle); }
-
-.ref-lane-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  min-width: 104px;
-  min-height: 40px;
-  padding: 0 var(--sp-5) 0 var(--edge);
-  background: var(--surface-row-alt);
-  border-right: 1px solid var(--border-subtle);
-  font: var(--type-label);
-  letter-spacing: var(--ls-caps);
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.ref-lane-head .count { margin-left: auto; color: var(--text-faint); }
-
-.ref-list {
-  display: flex;
-  min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-}
-
-.ref-item {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--sp-5);
-  min-height: 40px;
-  padding: 0 var(--sp-6);
-  white-space: nowrap;
-}
-
-.ref-item + .ref-item { border-left: 1px solid var(--border-subtle); }
-.ref-item .tag { margin-left: 0; }
-
-.ref-empty {
-  min-width: max-content;
-  margin: 0;
-  padding: var(--sp-5) var(--sp-6);
-  font: var(--type-body);
-  color: var(--text-muted);
-}
-
-.repo-main {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(440px, 2fr);
-  min-height: 0;
-}
-
-.repo-main > .pane:only-child { grid-column: 1 / -1; }
 
 /* Settings are records to manage, rather than parallel console panes. Keep
    every record wide enough to read, and use a second column only when both
@@ -833,11 +816,20 @@ ul { list-style: none; margin: 0; padding: 0; }
   .panes.quad { grid-template-columns: minmax(0, 1fr); }
   .pane + .pane { border-left: 0; border-top: 1px solid var(--border-default); }
 
-  .repo-overview { height: auto; min-height: 100%; }
-  .repo-tools { grid-template-columns: minmax(0, 1fr); }
-  .repo-refs { border-top: 1px solid var(--border-subtle); border-left: 0; }
-  .repo-main { display: block; }
+  .repo-main {
+    display: block;
+    max-height: none;
+    overflow: visible;
+  }
+
   .repo-main .pane { overflow: visible; }
+
+  .repo-presentation:not(.is-expanded) .repo-main .pane {
+    max-height: 50vh;
+    overflow: hidden;
+  }
+
+  .repo-tools { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Tables become labelled records before their columns can crowd the name or

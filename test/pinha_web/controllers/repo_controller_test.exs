@@ -162,7 +162,7 @@ defmodule PinhaWeb.RepoControllerTest do
       refute html =~ "No commits have been pushed"
     end
 
-    test "lays out the file tree above the README and recent history", %{conn: conn} do
+    test "leads with bounded README and history above files and refs", %{conn: conn} do
       seed_repo!("demo", [
         %{
           message: "document the project",
@@ -181,14 +181,20 @@ defmodule PinhaWeb.RepoControllerTest do
       assert html =~ "lib/"
       assert html =~ ~s(id="repository-readme")
       assert html =~ ~s(id="repository-history")
+      assert html =~ ~s(id="repository-presentation")
+      assert html =~ ~s(aria-controls="repository-presentation-content")
+      assert html =~ ~s(aria-expanded="false")
+      assert html =~ "Show all"
       assert html =~ "Demo</h1>"
 
-      {tree_index, _length} = :binary.match(html, ~s(id="repository-tree"))
       {readme_index, _length} = :binary.match(html, ~s(id="repository-readme"))
       {history_index, _length} = :binary.match(html, ~s(id="repository-history"))
+      {tree_index, _length} = :binary.match(html, ~s(id="repository-tree"))
+      {refs_index, _length} = :binary.match(html, ~s(id="repository-refs"))
 
-      assert tree_index < readme_index
       assert readme_index < history_index
+      assert history_index < tree_index
+      assert tree_index < refs_index
     end
 
     test "keeps Git terminology and emphasis for a plain repository", %{conn: conn} do
@@ -198,7 +204,9 @@ defmodule PinhaWeb.RepoControllerTest do
 
       assert html =~ ~s(data-repository-kind="git")
       assert html =~ "Plain Git repository and history"
-      assert html =~ "Branch"
+      assert html =~ "Branches &amp; tags"
+      assert html =~ ">Branch<"
+      assert html =~ "default"
       refute html =~ "Default branch"
       assert html =~ ~s(href="/r/plain/tree/main/a.txt")
       assert html =~ "Recent commits"

@@ -78,7 +78,7 @@ defmodule PinhaWeb.Observability do
 
     base = [
       {"repo", repo_name(conn)},
-      {"user", conn.assigns[:current_user] && conn.assigns.current_user.id}
+      {"user", conn.assigns[:current_user] && conn.assigns.current_user.uid}
     ]
 
     audit_attrs =
@@ -110,7 +110,7 @@ defmodule PinhaWeb.Observability do
       repo: repo_name(conn),
       rev: scrub(conn.path_params["rev"] || conn.path_params["id"]),
       git: conn.private[:pinha_git_service] || "none",
-      user: conn.assigns[:current_user] && conn.assigns.current_user.id,
+      user: conn.assigns[:current_user] && conn.assigns.current_user.uid,
       status: conn.status || 0,
       duration_ms: Float.round(duration_ms, 3),
       req_bytes: conn.private[:pinha_req_bytes] || request_bytes(conn),

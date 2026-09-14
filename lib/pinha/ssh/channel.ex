@@ -182,7 +182,7 @@ defmodule Pinha.Ssh.Channel do
 
       Span.set_attributes(
         span,
-        [{"user", user.id}] ++ Git.span_attributes(repo.dir, subcommand, [subcommand])
+        [{"user", user.uid}] ++ Git.span_attributes(repo.dir, subcommand, [subcommand])
       )
 
       spawn_git(%{state | subcommand: subcommand, repo: repo, user: user})
@@ -362,7 +362,7 @@ defmodule Pinha.Ssh.Channel do
       repo: state.repo && state.repo.name,
       rev: nil,
       git: state.subcommand || "none",
-      user: state.user && state.user.id,
+      user: state.user && state.user.uid,
       peer: state.peer,
       status: status,
       duration_ms: duration(state),

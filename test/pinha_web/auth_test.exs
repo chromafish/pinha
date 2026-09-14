@@ -49,7 +49,7 @@ defmodule PinhaWeb.AuthTest do
       conn = get(conn, "/")
       line = PinhaWeb.Observability.line(conn, PinhaWeb.Observability.route(conn), 1.0)
 
-      assert line.user == user.id
+      assert line.user == user.uid
     end
   end
 
