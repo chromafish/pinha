@@ -130,6 +130,7 @@ export MIX_ENV=prod
 
 mix deps.get --only prod
 mix compile --warnings-as-errors
+mix assets.setup
 mix release --overwrite
 
 TARBALL="$ROOT/_build/prod/pinha-$VERSION.tar.gz"

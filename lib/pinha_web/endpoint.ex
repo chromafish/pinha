@@ -18,6 +18,8 @@ defmodule PinhaWeb.Endpoint do
     max_age: 60 * 24 * 60 * 60
   ]
 
+  socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
+
   plug Plug.Static,
     at: "/",
     from: :pinha,

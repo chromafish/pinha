@@ -42,3 +42,7 @@ pinha-*.tar
 
 .env
 .env.prd 
+
+# The browser bundle esbuild writes from assets/.
+/priv/static/assets/js/app.js
+/priv/static/assets/js/app.js.map

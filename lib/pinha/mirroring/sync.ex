@@ -37,11 +37,17 @@ defmodule Pinha.Mirroring.Sync do
       case Mirroring.get(mirror_id) do
         %Mirror{state: "active"} = mirror ->
           Mirroring.with_sync_lock(mirror.repo_id, fn ->
-            # Re-read under the lock: a sync that waited may find the mirror
-            # disabled by the one before it.
-            case Mirroring.get(mirror_id) do
-              %Mirror{state: "active"} = mirror -> sync(mirror, trigger, started)
-              _ -> report(mirror, trigger, :skipped, %{}, started)
+            Mirroring.announce(mirror.repo_id, :started)
+
+            try do
+              # Re-read under the lock: a sync that waited may find the mirror
+              # disabled by the one before it.
+              case Mirroring.get(mirror_id) do
+                %Mirror{state: "active"} = mirror -> sync(mirror, trigger, started)
+                _ -> report(mirror, trigger, :skipped, %{}, started)
+              end
+            after
+              Mirroring.announce(mirror.repo_id, :finished)
             end
           end)
 

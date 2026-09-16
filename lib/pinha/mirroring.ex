@@ -31,6 +31,32 @@ defmodule Pinha.Mirroring do
   @locks Pinha.Mirroring.Locks
   @github_name ~r/\A[A-Za-z0-9._-]{1,100}\z/
 
+  ## Watching
+
+  @doc "Subscribes the caller to a repository's mirror changes."
+  @spec subscribe(String.t()) :: :ok | {:error, term()}
+  def subscribe(repo_id) when is_binary(repo_id),
+    do: Phoenix.PubSub.subscribe(Pinha.PubSub, topic(repo_id))
+
+  @doc """
+  Announces what just happened to a repository's mirror.
+
+  `:queued`, `:started`, and `:finished` bracket a sync, and `:changed` covers
+  everything else, so a page showing a mirror never has to poll for it.
+  """
+  @spec announce(String.t() | nil, :queued | :started | :finished | :changed) :: :ok
+  def announce(nil, _event), do: :ok
+
+  def announce(repo_id, event) when is_binary(repo_id) do
+    Phoenix.PubSub.broadcast(Pinha.PubSub, topic(repo_id), {:mirror, repo_id, event})
+  end
+
+  @doc "Whether a sync holds the repository's lock right now."
+  @spec syncing?(String.t()) :: boolean()
+  def syncing?(repo_id) when is_binary(repo_id), do: Registry.lookup(@locks, repo_id) != []
+
+  defp topic(repo_id), do: "mirror:" <> repo_id
+
   ## Reading
 
   @doc "One mirror by ID, or nil."
@@ -102,9 +128,13 @@ defmodule Pinha.Mirroring do
   """
   @spec enqueue_sync(Mirror.t(), String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_sync(%Mirror{} = mirror, trigger) do
-    %{"mirror_id" => mirror.id, "repo_id" => mirror.repo_id, "trigger" => trigger}
-    |> SyncWorker.new()
-    |> Oban.insert()
+    result =
+      %{"mirror_id" => mirror.id, "repo_id" => mirror.repo_id, "trigger" => trigger}
+      |> SyncWorker.new()
+      |> Oban.insert()
+
+    announce(mirror.repo_id, :queued)
+    result
   end
 
   @doc """
@@ -227,6 +257,7 @@ defmodule Pinha.Mirroring do
       ]
     )
 
+    announce(mirror.repo_id, :changed)
     :ok
   end
 
@@ -252,6 +283,7 @@ defmodule Pinha.Mirroring do
       end
     end)
 
+    announce(mirror.repo_id, :changed)
     :ok
   end
 
@@ -284,6 +316,7 @@ defmodule Pinha.Mirroring do
 
   def disable_for_repo(%Repository{id: id}, reason) do
     disable_query(from(m in Mirror, where: m.repo_id == ^id), Atom.to_string(reason))
+    announce(id, :changed)
     :ok
   rescue
     error ->
@@ -295,6 +328,7 @@ defmodule Pinha.Mirroring do
   @spec delete_for_repo_id(String.t()) :: :ok
   def delete_for_repo_id(id) do
     Repo.delete_all(from(m in Mirror, where: m.repo_id == ^id))
+    announce(id, :changed)
     :ok
   end
 
@@ -432,6 +466,7 @@ defmodule Pinha.Mirroring do
       })
 
     with {:ok, mirror} <- %Mirror{} |> Mirror.connect_changeset(attrs) |> Repo.insert() do
+      announce(mirror.repo_id, :changed)
       if mirror.state == "active", do: enqueue_sync(mirror, "connected")
       {:ok, mirror}
     end
@@ -474,6 +509,7 @@ defmodule Pinha.Mirroring do
   @spec disconnect(Mirror.t()) :: :ok
   def disconnect(%Mirror{} = mirror) do
     Repo.delete_all(from(m in Mirror, where: m.id == ^mirror.id))
+    announce(mirror.repo_id, :changed)
     :ok
   end
 
@@ -540,9 +576,13 @@ defmodule Pinha.Mirroring do
   defp update!(mirror, changes) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    mirror
-    |> Ecto.Changeset.change(Keyword.put(changes, :updated_at, now))
-    |> Repo.update!()
+    updated =
+      mirror
+      |> Ecto.Changeset.change(Keyword.put(changes, :updated_at, now))
+      |> Repo.update!()
+
+    announce(updated.repo_id, :changed)
+    updated
   end
 
   ## Provider events

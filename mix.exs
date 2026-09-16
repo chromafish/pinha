@@ -23,12 +23,19 @@ defmodule Pinha.MixProject do
     [
       pinha: [
         include_executables_for: [:unix],
-        steps: [:assemble, :tar],
+        steps: [&build_assets/1, :assemble, :tar],
         # The exporter has to be up before anything it exports for, and a
         # telemetry pipeline that dies is not a reason to take the node down.
         applications: [opentelemetry_exporter: :permanent, opentelemetry: :temporary]
       ]
     ]
+  end
+
+  # The browser bundle is built from `assets/` before the release is assembled,
+  # so a tarball always carries the JavaScript matching the code inside it.
+  defp build_assets(release) do
+    Mix.Task.run("assets.deploy")
+    release
   end
 
   # Configuration for the OTP application.
@@ -60,6 +67,7 @@ defmodule Pinha.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
+      {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:lazy_html, ">= 0.1.0", only: :test},
       # Drives a headless browser over the DevTools protocol, which is the only
       # way to get a real passkey assertion into the suite.
@@ -93,11 +101,21 @@ defmodule Pinha.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "assets.setup", "assets.build", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "assets.setup": ["esbuild.install --if-missing"],
+      "assets.build": ["esbuild pinha"],
+      "assets.deploy": ["esbuild pinha --minify"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "assets.setup",
+        "assets.build",
+        "format",
+        "test"
+      ]
     ]
   end
 end

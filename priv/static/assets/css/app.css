@@ -931,3 +931,42 @@ ul { list-style: none; margin: 0; padding: 0; }
   padding: var(--sp-5) var(--edge);
   border-top: 1px solid var(--border-subtle);
 }
+
+/* ---- signals ------------------------------------------------------------ */
+
+/* A lamp, read at a glance from across the room: green is in sync, amber is
+   working or behind, red is stopped. The pulse says a sync is running right
+   now, and motion tokens flatten it to nothing under reduced motion. */
+
+.signal {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--sp-3);
+  border-radius: 50%;
+  background: var(--signal-color);
+  box-shadow: 0 0 0 1px var(--signal-line) inset;
+  vertical-align: baseline;
+}
+
+.signal-ok { --signal-color: var(--status-ok-fg); --signal-line: var(--status-ok-line); }
+.signal-warn { --signal-color: var(--status-warn-fg); --signal-line: var(--status-warn-line); }
+.signal-danger { --signal-color: var(--status-danger-fg); --signal-line: var(--status-danger-line); }
+
+.signal-neutral {
+  --signal-color: var(--status-neutral-bg);
+  --signal-line: var(--status-neutral-line);
+}
+
+.signal-live {
+  animation: signal-blink 1.4s var(--ease-mech) infinite;
+}
+
+@keyframes signal-blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 1px var(--signal-line) inset, 0 0 6px var(--signal-color); }
+  50% { opacity: 0.35; box-shadow: 0 0 0 1px var(--signal-line) inset; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-live { animation: none; opacity: 1; }
+}
