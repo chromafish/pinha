@@ -73,10 +73,28 @@ end
 # its webhook URL `<base URL>/integrations/github/webhook`. The suite
 # configures its own stubbed app, so this is left alone there.
 if config_env() != :test do
+  # A key that cannot be read leaves the provider unconfigured, which hides
+  # the controls that need it. Reading it with `File.read!` took the whole
+  # node down at boot instead, over a feature the rest of the server does not
+  # depend on.
   github_private_key =
     case System.get_env("PINHA_GITHUB_PRIVATE_KEY_PATH") do
-      nil -> System.get_env("PINHA_GITHUB_PRIVATE_KEY")
-      path -> File.read!(path)
+      nil ->
+        System.get_env("PINHA_GITHUB_PRIVATE_KEY")
+
+      path ->
+        case File.read(path) do
+          {:ok, pem} ->
+            pem
+
+          {:error, reason} ->
+            IO.warn(
+              "GitHub App private key at #{path} is unreadable " <>
+                "(#{:file.format_error(reason)}); the GitHub provider stays unconfigured"
+            )
+
+            nil
+        end
     end
 
   config :pinha, Pinha.Providers.GitHub,
